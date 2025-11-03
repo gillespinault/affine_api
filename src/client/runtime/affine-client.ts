@@ -659,6 +659,8 @@ export class AffineClient {
       index?: string;
     } = {},
   ) {
+    await this.joinWorkspace(workspaceId);
+
     const finalNodeId = await this.upsertFolderNode(workspaceId, {
       nodeId,
       parentId,
@@ -683,6 +685,8 @@ export class AffineClient {
       index?: string;
     },
   ) {
+    await this.joinWorkspace(workspaceId);
+
     const finalNodeId = await this.upsertFolderNode(workspaceId, {
       nodeId,
       parentId: parentFolderId,
