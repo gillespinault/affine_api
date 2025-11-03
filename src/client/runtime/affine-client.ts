@@ -1473,4 +1473,322 @@ export class AffineClient {
 
     return { blockId, deleted: true };
   }
+
+  // ============================================================================
+  // Edgeless Mode Operations
+  // ============================================================================
+
+  /**
+   * Get all elements from the Edgeless canvas.
+   * @param workspaceId Workspace ID
+   * @param docId Document ID
+   * @returns Array of Edgeless elements
+   */
+  async getEdgelessElements(
+    workspaceId: string,
+    docId: string,
+  ): Promise<Array<Record<string, unknown>>> {
+    await this.joinWorkspace(workspaceId);
+
+    const { doc } = await this.loadWorkspaceDoc(workspaceId, docId);
+    const blocks = doc.getMap<Y.Map<unknown>>('blocks');
+
+    // Find surface block
+    let surfaceBlockFound: Y.Map<unknown> | undefined;
+    let surfaceId: string | null = null;
+
+    blocks.forEach((blockData, blockId) => {
+      if (blockData instanceof Y.Map && blockData.get('sys:flavour') === 'affine:surface') {
+        surfaceBlockFound = blockData;
+        surfaceId = blockId;
+      }
+    });
+
+    if (!surfaceBlockFound || !surfaceId) {
+      return [];
+    }
+
+    const surfaceBlock = surfaceBlockFound; // Type narrowing
+
+    // Extract elements
+    const elementsWrapper = surfaceBlock.get('prop:elements') as unknown;
+    if (!elementsWrapper || typeof elementsWrapper !== 'object') {
+      return [];
+    }
+
+    const elementsValue = (elementsWrapper as { value?: Record<string, unknown> }).value;
+    if (!elementsValue || typeof elementsValue !== 'object') {
+      return [];
+    }
+
+    // Convert to array, parsing xywh strings
+    const elements: Array<Record<string, unknown>> = [];
+    for (const [elementId, elementData] of Object.entries(elementsValue)) {
+      if (typeof elementData === 'object' && elementData !== null) {
+        const element = { ...elementData };
+
+        // Parse xywh if it's a string
+        if ('xywh' in element && typeof element.xywh === 'string') {
+          try {
+            element.xywh = JSON.parse(element.xywh as string);
+          } catch (e) {
+            // Keep as string if parsing fails
+          }
+        }
+
+        elements.push(element);
+      }
+    }
+
+    return elements;
+  }
+
+  /**
+   * Add a new element to the Edgeless canvas.
+   * @param workspaceId Workspace ID
+   * @param docId Document ID
+   * @param elementData Element data (will be processed by factory)
+   * @returns Created element with generated ID
+   */
+  async addEdgelessElement(
+    workspaceId: string,
+    docId: string,
+    elementData: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    await this.joinWorkspace(workspaceId);
+
+    const { doc, stateVector } = await this.loadWorkspaceDoc(workspaceId, docId);
+    const blocks = doc.getMap<Y.Map<unknown>>('blocks');
+
+    // Find surface block
+    let surfaceBlockFound: Y.Map<unknown> | undefined;
+    let surfaceId: string | null = null;
+
+    blocks.forEach((blockData, blockId) => {
+      if (blockData instanceof Y.Map && blockData.get('sys:flavour') === 'affine:surface') {
+        surfaceBlockFound = blockData;
+        surfaceId = blockId;
+      }
+    });
+
+    if (!surfaceBlockFound || !surfaceId) {
+      throw new Error('Surface block not found in document');
+    }
+
+    const surfaceBlock = surfaceBlockFound; // Type narrowing
+
+    // Get elements container
+    const elementsWrapper = surfaceBlock.get('prop:elements') as unknown;
+    if (!elementsWrapper || typeof elementsWrapper !== 'object') {
+      throw new Error('Elements property not found in surface block');
+    }
+
+    const elementsValue = (elementsWrapper as { value?: Record<string, unknown> }).value;
+    if (!elementsValue || typeof elementsValue !== 'object') {
+      throw new Error('Elements value not found');
+    }
+
+    // Generate element ID if not provided
+    const elementId = (elementData.id as string) || nanoid();
+
+    // Serialize xywh if it's an array
+    const processedElement: Record<string, unknown> = { ...elementData, id: elementId };
+    if ('xywh' in processedElement && Array.isArray(processedElement.xywh)) {
+      processedElement.xywh = JSON.stringify(processedElement.xywh);
+    }
+
+    // Generate index if not provided
+    if (!processedElement.index) {
+      const existingIndices = Object.values(elementsValue)
+        .filter((el): el is Record<string, unknown> => typeof el === 'object' && el !== null)
+        .map(el => el.index as string)
+        .filter((idx): idx is string => typeof idx === 'string');
+
+      processedElement.index = this.generateNextIndex(existingIndices);
+    }
+
+    // Generate seed if not provided
+    if (!processedElement.seed) {
+      processedElement.seed = Math.floor(Math.random() * 2147483647);
+    }
+
+    // Add element to surface
+    doc.transact(() => {
+      elementsValue[elementId] = processedElement;
+    });
+
+    await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
+
+    // Return element with parsed xywh
+    const returnElement = { ...processedElement };
+    if (typeof returnElement.xywh === 'string') {
+      try {
+        returnElement.xywh = JSON.parse(returnElement.xywh);
+      } catch (e) {
+        // Keep as string if parsing fails
+      }
+    }
+
+    return returnElement;
+  }
+
+  /**
+   * Update an existing Edgeless element.
+   * @param workspaceId Workspace ID
+   * @param docId Document ID
+   * @param elementId Element ID
+   * @param updates Properties to update
+   * @returns Updated element
+   */
+  async updateEdgelessElement(
+    workspaceId: string,
+    docId: string,
+    elementId: string,
+    updates: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    await this.joinWorkspace(workspaceId);
+
+    const { doc, stateVector } = await this.loadWorkspaceDoc(workspaceId, docId);
+    const blocks = doc.getMap<Y.Map<unknown>>('blocks');
+
+    // Find surface block
+    let surfaceBlockFound: Y.Map<unknown> | undefined;
+
+    blocks.forEach((blockData) => {
+      if (blockData instanceof Y.Map && blockData.get('sys:flavour') === 'affine:surface') {
+        surfaceBlockFound = blockData;
+      }
+    });
+
+    if (!surfaceBlockFound) {
+      throw new Error('Surface block not found in document');
+    }
+
+    const surfaceBlock = surfaceBlockFound; // Type narrowing
+
+    // Get elements container
+    const elementsWrapper = surfaceBlock.get('prop:elements') as unknown;
+    if (!elementsWrapper || typeof elementsWrapper !== 'object') {
+      throw new Error('Elements property not found in surface block');
+    }
+
+    const elementsValue = (elementsWrapper as { value?: Record<string, unknown> }).value;
+    if (!elementsValue || typeof elementsValue !== 'object') {
+      throw new Error('Elements value not found');
+    }
+
+    // Get existing element
+    const existingElement = elementsValue[elementId];
+    if (!existingElement || typeof existingElement !== 'object') {
+      throw new Error(`Element ${elementId} not found`);
+    }
+
+    // Merge updates
+    const processedUpdates: Record<string, unknown> = { ...updates };
+    if ('xywh' in processedUpdates && Array.isArray(processedUpdates.xywh)) {
+      processedUpdates.xywh = JSON.stringify(processedUpdates.xywh);
+    }
+
+    const updatedElement = {
+      ...(existingElement as Record<string, unknown>),
+      ...processedUpdates,
+    };
+
+    // Update element
+    doc.transact(() => {
+      elementsValue[elementId] = updatedElement;
+    });
+
+    await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
+
+    // Return element with parsed xywh
+    const returnElement = { ...updatedElement };
+    if (typeof returnElement.xywh === 'string') {
+      try {
+        returnElement.xywh = JSON.parse(returnElement.xywh);
+      } catch (e) {
+        // Keep as string if parsing fails
+      }
+    }
+
+    return returnElement;
+  }
+
+  /**
+   * Delete an element from the Edgeless canvas.
+   * @param workspaceId Workspace ID
+   * @param docId Document ID
+   * @param elementId Element ID
+   * @returns Deletion confirmation
+   */
+  async deleteEdgelessElement(
+    workspaceId: string,
+    docId: string,
+    elementId: string,
+  ): Promise<{ elementId: string; deleted: boolean }> {
+    await this.joinWorkspace(workspaceId);
+
+    const { doc, stateVector } = await this.loadWorkspaceDoc(workspaceId, docId);
+    const blocks = doc.getMap<Y.Map<unknown>>('blocks');
+
+    // Find surface block
+    let surfaceBlockFound: Y.Map<unknown> | undefined;
+
+    blocks.forEach((blockData) => {
+      if (blockData instanceof Y.Map && blockData.get('sys:flavour') === 'affine:surface') {
+        surfaceBlockFound = blockData;
+      }
+    });
+
+    if (!surfaceBlockFound) {
+      throw new Error('Surface block not found in document');
+    }
+
+    const surfaceBlock = surfaceBlockFound; // Type narrowing
+
+    // Get elements container
+    const elementsWrapper = surfaceBlock.get('prop:elements') as unknown;
+    if (!elementsWrapper || typeof elementsWrapper !== 'object') {
+      throw new Error('Elements property not found in surface block');
+    }
+
+    const elementsValue = (elementsWrapper as { value?: Record<string, unknown> }).value;
+    if (!elementsValue || typeof elementsValue !== 'object') {
+      throw new Error('Elements value not found');
+    }
+
+    // Check if element exists
+    if (!elementsValue[elementId]) {
+      throw new Error(`Element ${elementId} not found`);
+    }
+
+    // Delete element
+    doc.transact(() => {
+      delete elementsValue[elementId];
+    });
+
+    await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
+
+    return { elementId, deleted: true };
+  }
+
+  /**
+   * Helper: Generate next fractional index for layering.
+   */
+  private generateNextIndex(existingIndices: string[]): string {
+    if (existingIndices.length === 0) {
+      return 'a0';
+    }
+
+    const sorted = existingIndices.sort().reverse();
+    const maxIndex = sorted[0];
+
+    const match = maxIndex.match(/^([a-z]+)(\d+)$/i);
+    if (!match) return 'a0';
+
+    const [, letters, numbers] = match;
+    const num = parseInt(numbers, 10);
+
+    return `${letters}${num + 1}`;
+  }
 }

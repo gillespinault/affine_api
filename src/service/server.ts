@@ -485,5 +485,133 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     }
   });
 
+  // ============================================================================
+  // Edgeless Mode Endpoints
+  // ============================================================================
+
+  app.get('/workspaces/:workspaceId/documents/:docId/edgeless', async (request, reply) => {
+    const { workspaceId, docId } = request.params as { workspaceId: string; docId: string };
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+    const client = createClient(config);
+    try {
+      await client.signIn(email, password);
+      const elements = await client.getEdgelessElements(workspaceId, docId);
+
+      reply.send({
+        docId,
+        elements,
+        count: elements.length,
+      });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  app.post(
+    '/workspaces/:workspaceId/documents/:docId/edgeless/elements',
+    async (request, reply) => {
+      const { workspaceId, docId } = request.params as {
+        workspaceId: string;
+        docId: string;
+      };
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+      if (!body.type) {
+        reply.code(400).send({ error: 'Element type is required' });
+        return;
+      }
+
+      const client = createClient(config);
+      try {
+        await client.signIn(email, password);
+        const element = await client.addEdgelessElement(workspaceId, docId, body);
+
+        reply.code(201).send(element);
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
+  app.get(
+    '/workspaces/:workspaceId/documents/:docId/edgeless/elements/:elementId',
+    async (request, reply) => {
+      const { workspaceId, docId, elementId } = request.params as {
+        workspaceId: string;
+        docId: string;
+        elementId: string;
+      };
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+      const client = createClient(config);
+      try {
+        await client.signIn(email, password);
+        const elements = await client.getEdgelessElements(workspaceId, docId);
+        const element = elements.find((el) => el.id === elementId);
+
+        if (!element) {
+          reply.code(404).send({ error: 'Element not found' });
+          return;
+        }
+
+        reply.send(element);
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
+  app.patch(
+    '/workspaces/:workspaceId/documents/:docId/edgeless/elements/:elementId',
+    async (request, reply) => {
+      const { workspaceId, docId, elementId } = request.params as {
+        workspaceId: string;
+        docId: string;
+        elementId: string;
+      };
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+      if (!body || Object.keys(body).length === 0) {
+        reply.code(400).send({ error: 'Update data is required' });
+        return;
+      }
+
+      const client = createClient(config);
+      try {
+        await client.signIn(email, password);
+        const element = await client.updateEdgelessElement(workspaceId, docId, elementId, body);
+
+        reply.send(element);
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
+  app.delete(
+    '/workspaces/:workspaceId/documents/:docId/edgeless/elements/:elementId',
+    async (request, reply) => {
+      const { workspaceId, docId, elementId } = request.params as {
+        workspaceId: string;
+        docId: string;
+        elementId: string;
+      };
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+      const client = createClient(config);
+      try {
+        await client.signIn(email, password);
+        const result = await client.deleteEdgelessElement(workspaceId, docId, elementId);
+
+        reply.code(200).send(result);
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
   return app;
 }
