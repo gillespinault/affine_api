@@ -9,6 +9,8 @@ export {
   SOCKET_PATH,
   type DocumentSummary,
   type DocumentSnapshot,
+  type BlockContent,
+  type DocumentContent,
 } from './runtime/affine-client.js';
 export { createDocYStructure, nanoid } from './runtime/doc-structure.js';
 export { createDocYStructureFromMarkdown } from './markdown/markdown-to-yjs.js';

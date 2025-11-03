@@ -121,6 +121,27 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     }
   });
 
+  app.get(
+    '/workspaces/:workspaceId/documents/:docId/content',
+    async (request, reply) => {
+      const { workspaceId, docId } = request.params as {
+        workspaceId: string;
+        docId: string;
+      };
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+      const client = createClient(config);
+      try {
+        await client.signIn(email, password);
+        await client.connectSocket();
+        const content = await client.getDocumentContent(workspaceId, docId);
+        reply.send(content);
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
   app.patch('/workspaces/:workspaceId/documents/:docId', async (request, reply) => {
     const { workspaceId, docId } = request.params as { workspaceId: string; docId: string };
     const body = (request.body ?? {}) as DocumentPayload;

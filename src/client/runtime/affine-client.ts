@@ -70,6 +70,18 @@ export interface DocumentSnapshot extends DocumentSummary {
   update: string;
 }
 
+export interface BlockContent {
+  id: string;
+  flavour: string;
+  props: Record<string, unknown>;
+  children: string[];
+  text?: string;
+}
+
+export interface DocumentContent extends DocumentSummary {
+  blocks: BlockContent[];
+}
+
 export function parseSetCookies(headers: Array<string | undefined> = []) {
   const jar = new Map<string, string>();
   for (const header of headers) {
@@ -916,6 +928,98 @@ export class AffineClient {
       ...summary,
       tags: [...summary.tags],
       update: encodeUpdateToBase64(docResult.doc, docResult.stateVector),
+    };
+  }
+
+  async getDocumentContent(
+    workspaceId: string,
+    docId: string,
+  ): Promise<DocumentContent> {
+    await this.joinWorkspace(workspaceId);
+    const [summaryList, docResult] = await Promise.all([
+      this.listDocuments(workspaceId),
+      this.loadWorkspaceDoc(workspaceId, docId),
+    ]);
+
+    const summary =
+      summaryList.find(entry => entry.docId === docId) ??
+      this.getOrCreateSummary(new Map<string, DocumentSummary>(), docId);
+
+    const meta = docResult.doc.getMap<unknown>('meta');
+    const metaTitle = meta.get('title');
+    if (typeof metaTitle === 'string') {
+      summary.title = metaTitle;
+    }
+    const createDate = meta.get('createDate');
+    if (typeof createDate === 'number') {
+      summary.createDate = createDate;
+    }
+    const updatedDate = meta.get('updatedDate');
+    if (typeof updatedDate === 'number') {
+      summary.updatedDate = updatedDate;
+    }
+    const metaTags = this.toStringArray(meta.get('tags'));
+    if (metaTags.length) {
+      summary.tags = metaTags;
+    }
+
+    // Extract blocks structure
+    const blocks: BlockContent[] = [];
+    const blocksMap = docResult.doc.getMap<Y.Map<unknown>>('blocks');
+
+    blocksMap.forEach((blockData, blockId) => {
+      if (!(blockData instanceof Y.Map)) {
+        return;
+      }
+
+      const flavour = blockData.get('sys:flavour');
+      if (typeof flavour !== 'string') {
+        return;
+      }
+
+      const block: BlockContent = {
+        id: blockId,
+        flavour,
+        props: {},
+        children: [],
+      };
+
+      // Extract all properties
+      blockData.forEach((value, key) => {
+        if (key.startsWith('prop:')) {
+          const propName = key.slice(5); // Remove 'prop:' prefix
+          if (value instanceof Y.Text) {
+            block.props[propName] = value.toString();
+            // Also store as text field for convenience
+            if (propName === 'text' || propName === 'title') {
+              block.text = value.toString();
+            }
+          } else if (value instanceof Y.Array) {
+            block.props[propName] = value.toArray();
+          } else if (value instanceof Y.Map) {
+            // Convert Y.Map to plain object
+            const obj: Record<string, unknown> = {};
+            value.forEach((v, k) => {
+              obj[k] = v;
+            });
+            block.props[propName] = obj;
+          } else {
+            block.props[propName] = value;
+          }
+        } else if (key === 'sys:children') {
+          if (value instanceof Y.Array) {
+            block.children = value.toArray().filter((v): v is string => typeof v === 'string');
+          }
+        }
+      });
+
+      blocks.push(block);
+    });
+
+    return {
+      ...summary,
+      tags: [...summary.tags],
+      blocks,
     };
   }
 
