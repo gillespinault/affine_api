@@ -3,8 +3,8 @@ import * as Y from 'yjs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { URL } from 'node:url';
 import type { AffineClientOptions } from './types';
-import { createDocYStructure, nanoid } from './doc-structure';
-import { createDocYStructureFromMarkdown } from '../markdown/markdown-to-yjs';
+import { createDocYStructure, nanoid } from './doc-structure.js';
+import { createDocYStructureFromMarkdown } from '../markdown/markdown-to-yjs.js';
 
 export const DEFAULT_BASE_URL =
   process.env.AFFINE_BASE_URL || 'https://affine.robotsinlove.be';

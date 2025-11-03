@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
-import { AffineClient } from '../client';
-import type { AffineClientOptions } from '../client';
+import { AffineClient } from '../client/index.js';
+import type { AffineClientOptions } from '../client/index.js';
 
 type DocumentPayload = {
   title?: string;
