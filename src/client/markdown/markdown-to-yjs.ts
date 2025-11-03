@@ -5,7 +5,7 @@ import { visit } from 'unist-util-visit';
 import { toString } from 'mdast-util-to-string';
 import * as Y from 'yjs';
 
-import { createDocYStructure, nanoid } from '../runtime/doc-structure.js';
+import { createDocYStructure, nanoid } from '../runtime/doc-structure';
 
 const markdownParser = unified().use(remarkParse).use(remarkGfm);
 

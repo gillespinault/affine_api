@@ -14,7 +14,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && bash add-js-extensions.sh",
     "dev": "tsx watch src/index.ts",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "test": "vitest run",
