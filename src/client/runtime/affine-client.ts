@@ -1488,7 +1488,8 @@ export class AffineClient {
     workspaceId: string,
     docId: string,
   ): Promise<Array<Record<string, unknown>>> {
-    // Note: No joinWorkspace() needed for read-only operations
+    await this.joinWorkspace(workspaceId);
+
     const { doc } = await this.loadWorkspaceDoc(workspaceId, docId);
     const blocks = doc.getMap<Y.Map<unknown>>('blocks');
 

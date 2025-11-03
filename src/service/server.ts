@@ -496,6 +496,7 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     const client = createClient(config);
     try {
       await client.signIn(email, password);
+      await client.connectSocket();
       const elements = await client.getEdgelessElements(workspaceId, docId);
 
       reply.send({
