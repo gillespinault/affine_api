@@ -527,6 +527,7 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
       const client = createClient(config);
       try {
         await client.signIn(email, password);
+        await client.connectSocket();
         const element = await client.addEdgelessElement(workspaceId, docId, body);
 
         reply.code(201).send(element);
@@ -583,6 +584,7 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
       const client = createClient(config);
       try {
         await client.signIn(email, password);
+        await client.connectSocket();
         const element = await client.updateEdgelessElement(workspaceId, docId, elementId, body);
 
         reply.send(element);
@@ -605,6 +607,7 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
       const client = createClient(config);
       try {
         await client.signIn(email, password);
+        await client.connectSocket();
         const result = await client.deleteEdgelessElement(workspaceId, docId, elementId);
 
         reply.code(200).send(result);
