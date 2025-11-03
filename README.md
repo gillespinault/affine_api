@@ -1,61 +1,382 @@
-# ServerLab AFFiNE API Toolkit
+# AFFiNE REST API
 
-Toolkit pour industrialiser les intégrations avec une instance AFFiNE self-hosted. Le projet fournit :
+**Production URL**: https://affine-api.robotsinlove.be
 
-- Un client TypeScript (`AffineClient`) qui gère authentification, Socket.IO et mutations Yjs pour créer/modifier des documents.
-- Des utilitaires Yjs (construction de documents, encodage d'updates, gestion des cookies).
-- Une base de tests Vitest pour sécuriser les évolutions.
-- Une documentation d'architecture et une feuille de route pour préparer la publication sur GitHub et les déploiements clients.
+API REST complète pour gérer programmatiquement des documents et dossiers dans une instance AFFiNE self-hosted.
 
-## Prise en main
+## 🎯 Vue d'ensemble
+
+Ce projet fournit :
+- **Client TypeScript** (`AffineClient`) - Authentification, Socket.IO, mutations Yjs
+- **API REST Fastify** - 11 endpoints pour documents, folders, et workspace
+- **Support Markdown** - Import/export avec GitHub Flavored Markdown
+- **Production-ready** - Déployé sur Dokploy avec SSL Let's Encrypt
+
+## 📚 API Endpoints (11 total)
+
+### Health Check
+```bash
+GET /healthz
+```
+
+### Documents (6 endpoints)
+```bash
+POST   /workspaces/:workspaceId/documents              # Créer document
+GET    /workspaces/:workspaceId/documents              # Lister documents
+GET    /workspaces/:workspaceId/documents/:docId       # Récupérer document
+PATCH  /workspaces/:workspaceId/documents/:docId       # Modifier document
+DELETE /workspaces/:workspaceId/documents/:docId       # Supprimer document
+PATCH  /workspaces/:workspaceId/documents/:docId/properties  # Modifier tags
+```
+
+### Folders (2 endpoints)
+```bash
+POST   /workspaces/:workspaceId/folders                # Créer dossier
+POST   /workspaces/:workspaceId/documents/:docId/move  # Déplacer document
+```
+
+### Workspace (1 endpoint)
+```bash
+PATCH  /workspaces/:workspaceId/meta                   # Modifier workspace meta
+```
+
+## 🚀 Démarrage rapide
+
+### Installation
 
 ```bash
+cd /home/gilles/serverlab/projects/notebooks_api
 npm install
-npm run build
-npm test
-npm run cli:create-doc -- --workspace <workspace-id>
-npm run cli:create-doc -- --workspace <workspace-id> --markdown-file ./note.md
 ```
 
-- `npm run build` produit `dist/` (ESM + déclarations TypeScript) à publier dans un registre interne ou un package CDN.
-- `npm test` exécute la suite Vitest (unit tests). Ajouter `--runInBand` en environnement CI si nécessaire.
-- `npm run cli:create-doc -- --workspace <workspace>` lance le nouveau CLI TypeScript (nécessite variables `AFFINE_EMAIL`/`AFFINE_PASSWORD`). Ajoutez `--markdown "<contenu>"` ou `--markdown-file <chemin>` pour importer une page riche à partir d'un Markdown.
-- Les scripts historiques (`scripts/affine_doc_manager.cjs`, `scripts/affine_ws_prototype.mjs`) continueront d'utiliser la couche CJS existante tant que `dist/` n'est pas publié. Voir [docs/roadmap.md](docs/roadmap.md) pour le plan de migration.
+### Configuration
 
-## Structure du dépôt
+Créer un fichier `.env` :
 
-```text
-README.md                     → overview et instructions rapides
-affine_api_notes.md           → notes de recherche existantes
-src/client/                   → client TypeScript + exports publics
-src/service/                  → service HTTP + CLI (Fastify skeleton)
-tests/unit/                   → Vitest specs
-scripts/                      → scripts Node historiques (CJS/MJS)
-docs/                         → architecture, roadmap, contributions
-docs/specs/rest-api.yaml     → spécification OpenAPI des endpoints REST
-docs/deployment.md           → guide publication GitHub + déploiement Dokploy
+```env
+AFFINE_EMAIL=your-email@example.com
+AFFINE_PASSWORD=your-password
+AFFINE_BASE_URL=https://affine.robotsinlove.be
+PORT=3000
 ```
 
-## Configurations principales
-
-- `package.json` – scripts, dépendances (socket.io-client, yjs, tooling TS/Vitest).
-- `tsconfig.json` & `tsconfig.build.json` – configuration TypeScript (Node 20, paths `@client/*`).
-- `.eslintrc.cjs`, `.prettierrc.json`, `.editorconfig` – conventions de code.
-
-## Exposer le service REST en local
+### Build
 
 ```bash
-npm install
 npm run build
-npm start
 ```
 
-La commande `npm start` instancie `Fastify` sur le port `3000` (configurable via `PORT`) et s'appuie sur les variables d'environnement `AFFINE_EMAIL`, `AFFINE_PASSWORD` et `AFFINE_BASE_URL`.
+Le build TypeScript compile `src/` vers `dist/` avec :
+- Configuration ESM moderne (`module: "NodeNext"`)
+- Extensions `.js` explicites dans les imports
+- Source maps pour debugging
 
-## Publication GitHub (prochaines étapes)
+### Développement local
 
-1. Initialiser un dépôt privé (ex. `serverlab/affine-api`) puis pousser l'historique.
-2. Activer une CI (GitHub Actions) avec jobs `npm ci`, `npm run build`, `npm test`.
-3. Générer des releases semver (`npm version`) et publier les artefacts (`dist/`).
+```bash
+npm run dev
+```
 
-Les détails complets (gouvernance, backlog, services REST/GraphQL) sont décrits dans la documentation du dossier `docs/`.
+Le serveur démarre sur `http://localhost:3000`.
+
+### Tests
+
+```bash
+npm test              # Run all tests
+npm run test:watch    # Watch mode
+```
+
+## 📖 Exemples d'utilisation
+
+### Créer un document avec Markdown
+
+```bash
+curl -X POST https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/documents \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Mon document",
+    "markdown": "# Titre\n\nContenu **formaté** avec du markdown."
+  }'
+```
+
+**Réponse** :
+```json
+{
+  "docId": "abc123xyz",
+  "title": "Mon document",
+  "timestamp": 1730000000000,
+  "folderNodeId": null
+}
+```
+
+### Créer un dossier
+
+```bash
+curl -X POST https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/folders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "📁 Mon Dossier",
+    "parentId": null
+  }'
+```
+
+**Réponse** :
+```json
+{
+  "nodeId": "folder-node-123"
+}
+```
+
+### Déplacer un document dans un dossier
+
+```bash
+curl -X POST https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/documents/DOC_ID/move \
+  -H "Content-Type: application/json" \
+  -d '{
+    "folderId": "folder-node-123"
+  }'
+```
+
+**Réponse** :
+```json
+{
+  "nodeId": "doc-folder-node-456"
+}
+```
+
+### Modifier les tags d'un document
+
+```bash
+curl -X PATCH https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/documents/DOC_ID/properties \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tags": ["api", "documentation", "production"]
+  }'
+```
+
+## 🏗️ Architecture
+
+### Stack technique
+
+- **Runtime** : Node.js 20+
+- **Framework** : Fastify 4.x (HTTP/2, logging Pino)
+- **Client** : Socket.IO client 4.x + Yjs 13.x
+- **Language** : TypeScript 5.6 (ESM strict)
+- **Build** : tsc (pas de bundler)
+
+### Structure du projet
+
+```
+/home/gilles/serverlab/projects/notebooks_api/
+├── src/
+│   ├── client/              # AffineClient + Yjs utilities
+│   │   ├── index.ts         # Public exports
+│   │   ├── runtime/         # Client implementation
+│   │   │   ├── affine-client.ts
+│   │   │   ├── doc-structure.ts
+│   │   │   └── types.ts
+│   │   └── markdown/        # Markdown import
+│   │       └── markdown-to-yjs.ts
+│   ├── service/             # REST API server
+│   │   ├── server.ts        # Fastify endpoints
+│   │   ├── start.ts         # Entry point
+│   │   └── cli/             # CLI tools
+│   └── index.ts             # Root exports
+├── tests/
+│   └── unit/                # Vitest tests
+├── dist/                    # Build output (ESM)
+├── docs/                    # Documentation
+├── package.json
+├── tsconfig.json            # TypeScript config
+└── README.md
+```
+
+### Déploiement (Dokploy)
+
+**Infrastructure** :
+```
+Internet (HTTPS)
+  ↓ (Let's Encrypt SSL)
+nginx VPS (185.158.132.168)
+  ↓ proxy_pass (Tailscale)
+Traefik (100.80.12.35:443)
+  ↓ (Host-based routing)
+Docker Swarm Service
+  ↓ (dokploy-network overlay)
+affine-api container (port 3000)
+```
+
+**Service Docker** :
+- **Image** : Built from `Dockerfile` via Dokploy
+- **Network** : `dokploy-network` (overlay)
+- **Replicas** : 1
+- **Auto-deploy** : Git push → GitHub → Webhook Dokploy
+
+**Webhook URL** (pour CI/CD) :
+```
+https://dokploy.robotsinlove.be/api/deploy/kDjCutKV2keMoxHUGvEqg
+```
+
+## 🔐 Sécurité
+
+### Authentification
+
+L'API utilise les credentials côté serveur (pas d'API keys) :
+- Authentification AFFiNE via `AFFINE_EMAIL` + `AFFINE_PASSWORD`
+- Toutes les requêtes sont effectuées au nom du compte configuré
+- Socket.IO session gérée automatiquement par le client
+
+### Transport
+
+- **HTTPS** : Obligatoire en production (certificat Let's Encrypt)
+- **HTTP/2** : Activé via nginx
+- **WebSocket** : Support configuré pour Socket.IO
+
+### À implémenter (roadmap)
+
+- [ ] Rate limiting (protection DDoS)
+- [ ] API Keys pour authentification client
+- [ ] CORS configuration
+- [ ] Request validation (schemas)
+
+## 🐛 Débogage
+
+### Logs serveur
+
+```bash
+# Production logs (Dokploy)
+docker service logs serverlabapps-affineapi-6bk95t --tail 100 -f
+
+# Filtrer par type de requête
+docker service logs serverlabapps-affineapi-6bk95t | grep -E '(POST|GET|PATCH|DELETE)'
+
+# Voir uniquement les erreurs
+docker service logs serverlabapps-affineapi-6bk95t | grep '"level":50'
+```
+
+### Logs Fastify
+
+Format JSON structuré (Pino) :
+```json
+{
+  "level": 30,
+  "time": 1762174481034,
+  "pid": 20,
+  "hostname": "6fc543a6cfa8",
+  "reqId": "req-1",
+  "req": {
+    "method": "POST",
+    "url": "/workspaces/xxx/folders",
+    "hostname": "affine-api.robotsinlove.be"
+  },
+  "res": {
+    "statusCode": 201
+  },
+  "responseTime": 2866.73,
+  "msg": "request completed"
+}
+```
+
+### Erreurs communes
+
+**1. "NOT_IN_SPACE" (403)**
+- **Cause** : Le client n'a pas rejoint le workspace Socket.IO
+- **Fix** : Appeler `await client.joinWorkspace(workspaceId)` avant toute opération
+- **Note** : Déjà implémenté dans tous les endpoints depuis v0.1.0
+
+**2. "ERR_MODULE_NOT_FOUND"**
+- **Cause** : Imports ESM sans extensions `.js`
+- **Fix** : Utiliser `import { foo } from './bar.js'` (pas `./bar`)
+- **Note** : Résolu avec `moduleResolution: "NodeNext"` dans tsconfig
+
+**3. Nginx 500**
+- **Cause** : Mauvaise configuration proxy_pass
+- **Fix** : Vérifier que nginx pointe vers Traefik Tailscale (100.80.12.35:443)
+- **Contact** : claude-vps pour modifications nginx
+
+## 📝 Contribuer
+
+### Workflow Git
+
+```bash
+# Feature branch
+git checkout -b feature/ma-feature
+git add .
+git commit -m "feat: Description"
+git push origin feature/ma-feature
+
+# Main branch (production)
+git checkout main
+git pull origin main
+git push origin main  # → Auto-deploy via webhook
+```
+
+### Conventions
+
+- **Commits** : [Conventional Commits](https://www.conventionalcommits.org/)
+  - `feat:` Nouvelle fonctionnalité
+  - `fix:` Correction de bug
+  - `docs:` Documentation
+  - `refactor:` Refactoring sans changement de comportement
+
+- **TypeScript** : Strict mode activé
+- **Linting** : ESLint + Prettier (automatique)
+- **Tests** : Vitest pour toutes les nouvelles features
+
+## 📦 Build Docker
+
+### Dockerfile
+
+```dockerfile
+FROM node:20-slim AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM node:20-slim AS runtime
+ENV NODE_ENV=production
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY --from=build /app/dist ./dist
+EXPOSE 3000
+CMD ["node", "dist/service/start.js"]
+```
+
+### Build local
+
+```bash
+docker build -t affine-api:local .
+docker run -p 3000:3000 \
+  -e AFFINE_EMAIL=email@example.com \
+  -e AFFINE_PASSWORD=password \
+  -e AFFINE_BASE_URL=https://affine.robotsinlove.be \
+  affine-api:local
+```
+
+## 🔗 Liens
+
+- **Production API** : https://affine-api.robotsinlove.be
+- **AFFiNE instance** : https://affine.robotsinlove.be
+- **GitHub** : https://github.com/gillespinault/affine_api
+- **Dokploy** : https://dokploy.robotsinlove.be
+- **Documentation AFFiNE** : https://affine.pro/docs
+
+## 📄 Licence
+
+MIT
+
+## 🙏 Remerciements
+
+- AFFiNE Team pour l'instance self-hosted
+- Dokploy pour l'orchestration Docker
+- claude-vps pour la configuration nginx
+
+---
+
+**Version** : 0.1.0
+**Dernière mise à jour** : 2025-11-03
+**Statut** : ✅ Production
+**Mainteneur** : Gilles Pinault (@gillespinault)
