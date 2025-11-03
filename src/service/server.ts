@@ -100,6 +100,7 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     const client = createClient(config);
     try {
       await client.signIn(email, password);
+      await client.connectSocket();
       const documents = await client.listDocuments(workspaceId);
       reply.send({ documents });
     } finally {
@@ -385,11 +386,24 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
         await client.joinWorkspace(workspaceId);
 
         const timestamp = Date.now();
-        await client.upsertDocProperties(workspaceId, {
-          docId,
-          timestamp,
-          tags: body.tags,
-        });
+
+        // Get current document to retrieve title
+        const docSnapshot = await client.getDocument(workspaceId, docId);
+
+        // Update both docProperties AND workspace meta for tags to be visible in UI
+        await Promise.all([
+          client.upsertDocProperties(workspaceId, {
+            docId,
+            timestamp,
+            tags: body.tags,
+          }),
+          client.updateWorkspaceMeta(workspaceId, {
+            docId,
+            title: docSnapshot.title || 'Untitled',
+            timestamp,
+            tags: body.tags,
+          }),
+        ]);
 
         reply.send({ docId, timestamp, updated: true });
       } finally {
