@@ -1,4 +1,4 @@
-import { createServer } from './server';
+import { createServer } from './server.js';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const AFFINE_BASE_URL = process.env.AFFINE_BASE_URL || 'https://affine.robotsinlove.be';
@@ -8,7 +8,7 @@ const server = createServer({
   logger: true,
 });
 
-server.listen({ port: PORT, host: '0.0.0.0' }, (err, address) => {
+server.listen({ port: PORT, host: '0.0.0.0' }, (err: Error | null, address: string) => {
   if (err) {
     server.log.error(err);
     process.exit(1);

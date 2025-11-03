@@ -1,1 +1,1 @@
-export { createServer, EnvCredentialProvider, type ServerConfig, type CredentialProvider } from './server';
+export { createServer, EnvCredentialProvider, type ServerConfig, type CredentialProvider } from './server.js';
