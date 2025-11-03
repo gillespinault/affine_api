@@ -8,24 +8,26 @@ API REST complète pour gérer programmatiquement des documents et dossiers dans
 
 Ce projet fournit :
 - **Client TypeScript** (`AffineClient`) - Authentification, Socket.IO, mutations Yjs
-- **API REST Fastify** - 11 endpoints pour documents, folders, et workspace
+- **API REST Fastify** - 12 endpoints pour documents, folders, et workspace
 - **Support Markdown** - Import/export avec GitHub Flavored Markdown
+- **Lecture structurée** - Extraction des blocs Yjs en JSON exploitable
 - **Production-ready** - Déployé sur Dokploy avec SSL Let's Encrypt
 
-## 📚 API Endpoints (11 total)
+## 📚 API Endpoints (12 total)
 
 ### Health Check
 ```bash
 GET /healthz
 ```
 
-### Documents (6 endpoints)
+### Documents (7 endpoints)
 ```bash
-POST   /workspaces/:workspaceId/documents              # Créer document
-GET    /workspaces/:workspaceId/documents              # Lister documents
-GET    /workspaces/:workspaceId/documents/:docId       # Récupérer document
-PATCH  /workspaces/:workspaceId/documents/:docId       # Modifier document
-DELETE /workspaces/:workspaceId/documents/:docId       # Supprimer document
+POST   /workspaces/:workspaceId/documents                    # Créer document
+GET    /workspaces/:workspaceId/documents                    # Lister documents
+GET    /workspaces/:workspaceId/documents/:docId             # Récupérer document (snapshot)
+GET    /workspaces/:workspaceId/documents/:docId/content     # Lire contenu structuré (NEW)
+PATCH  /workspaces/:workspaceId/documents/:docId             # Modifier document
+DELETE /workspaces/:workspaceId/documents/:docId             # Supprimer document
 PATCH  /workspaces/:workspaceId/documents/:docId/properties  # Modifier tags
 ```
 
@@ -143,6 +145,78 @@ curl -X POST https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/document
   "nodeId": "doc-folder-node-456"
 }
 ```
+
+### Lire le contenu structuré d'un document
+
+```bash
+curl -X GET https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/documents/DOC_ID/content
+```
+
+**Réponse** :
+```json
+{
+  "docId": "abc123xyz",
+  "title": "Mon document",
+  "createDate": 1730000000000,
+  "updatedDate": 1730000000000,
+  "tags": ["api", "documentation"],
+  "folderId": null,
+  "folderNodeId": null,
+  "blocks": [
+    {
+      "id": "block-page-1",
+      "flavour": "affine:page",
+      "props": {
+        "title": "Mon document"
+      },
+      "children": ["block-surface-1", "block-note-1"],
+      "text": "Mon document"
+    },
+    {
+      "id": "block-note-1",
+      "flavour": "affine:note",
+      "props": {
+        "xywh": "[0,0,800,95]",
+        "background": "--affine-background-secondary-color"
+      },
+      "children": ["block-para-1", "block-para-2"]
+    },
+    {
+      "id": "block-para-1",
+      "flavour": "affine:paragraph",
+      "props": {
+        "text": "Premier paragraphe avec du texte.",
+        "type": "text"
+      },
+      "children": [],
+      "text": "Premier paragraphe avec du texte."
+    },
+    {
+      "id": "block-para-2",
+      "flavour": "affine:paragraph",
+      "props": {
+        "text": "Deuxième paragraphe.",
+        "type": "text"
+      },
+      "children": [],
+      "text": "Deuxième paragraphe."
+    }
+  ]
+}
+```
+
+**Types de blocs supportés** :
+- `affine:page` - Racine du document
+- `affine:surface` - Canvas pour mode edgeless
+- `affine:note` - Conteneur de contenu
+- `affine:paragraph` - Paragraphe de texte
+- `affine:list` - Liste (bulleted, numbered, todo)
+- `affine:code` - Bloc de code
+- `affine:heading` - Titre (h1-h6)
+- `affine:divider` - Séparateur horizontal
+- `affine:image` - Image
+- `affine:bookmark` - Signet/lien
+- Et bien d'autres...
 
 ### Modifier les tags d'un document
 
