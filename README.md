@@ -8,12 +8,13 @@ API REST complète pour gérer programmatiquement des documents et dossiers dans
 
 Ce projet fournit :
 - **Client TypeScript** (`AffineClient`) - Authentification, Socket.IO, mutations Yjs
-- **API REST Fastify** - 12 endpoints pour documents, folders, et workspace
+- **API REST Fastify** - 15 endpoints pour documents, folders, et workspace
 - **Support Markdown** - Import/export avec GitHub Flavored Markdown
 - **Lecture structurée** - Extraction des blocs Yjs en JSON exploitable
-- **Production-ready** - Déployé sur Dokploy avec SSL Let's Encrypt
+- **Opérations sur les blocs** - CRUD complet sur les blocs individuels (paragraphes, listes, etc.)
+- **Production-ready** - Déployé sur Dokploy avec SSL Let's Encrypt + webhook auto-deploy
 
-## 📚 API Endpoints (12 total)
+## 📚 API Endpoints (15 total)
 
 ### Health Check
 ```bash
@@ -25,10 +26,17 @@ GET /healthz
 POST   /workspaces/:workspaceId/documents                    # Créer document
 GET    /workspaces/:workspaceId/documents                    # Lister documents
 GET    /workspaces/:workspaceId/documents/:docId             # Récupérer document (snapshot)
-GET    /workspaces/:workspaceId/documents/:docId/content     # Lire contenu structuré (NEW)
+GET    /workspaces/:workspaceId/documents/:docId/content     # Lire contenu structuré
 PATCH  /workspaces/:workspaceId/documents/:docId             # Modifier document
 DELETE /workspaces/:workspaceId/documents/:docId             # Supprimer document
 PATCH  /workspaces/:workspaceId/documents/:docId/properties  # Modifier tags
+```
+
+### Block Operations (3 endpoints - NEW Priority #2)
+```bash
+POST   /workspaces/:workspaceId/documents/:docId/blocks           # Ajouter un bloc
+PATCH  /workspaces/:workspaceId/documents/:docId/blocks/:blockId  # Modifier un bloc
+DELETE /workspaces/:workspaceId/documents/:docId/blocks/:blockId  # Supprimer un bloc
 ```
 
 ### Folders (2 endpoints)
@@ -227,6 +235,76 @@ curl -X PATCH https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/documen
     "tags": ["api", "documentation", "production"]
   }'
 ```
+
+### Opérations sur les blocs (Priority #2)
+
+#### Ajouter un paragraphe
+
+```bash
+curl -X POST https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/documents/DOC_ID/blocks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "flavour": "affine:paragraph",
+    "parentBlockId": "note-block-id",
+    "props": {
+      "text": "Nouveau paragraphe ajouté via l'API",
+      "type": "text"
+    },
+    "position": "end"
+  }'
+```
+
+**Réponse** :
+```json
+{
+  "blockId": "BuLbYU091c46vEhwC3Ulg",
+  "timestamp": 1762184437368
+}
+```
+
+**Options de position** :
+- `"start"` - Insérer au début des enfants
+- `"end"` - Insérer à la fin (défaut)
+- `0`, `1`, `2`, ... - Insérer à l'index spécifique
+
+#### Modifier un bloc existant
+
+```bash
+curl -X PATCH https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/documents/DOC_ID/blocks/BLOCK_ID \
+  -H "Content-Type: application/json" \
+  -d '{
+    "props": {
+      "text": "Texte modifié"
+    }
+  }'
+```
+
+**Réponse** :
+```json
+{
+  "blockId": "BuLbYU091c46vEhwC3Ulg",
+  "timestamp": 1762184457665
+}
+```
+
+#### Supprimer un bloc
+
+```bash
+curl -X DELETE https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/documents/DOC_ID/blocks/BLOCK_ID
+```
+
+**Réponse** :
+```json
+{
+  "blockId": "BuLbYU091c46vEhwC3Ulg",
+  "deleted": true
+}
+```
+
+**Notes importantes** :
+- La suppression est récursive (supprime aussi les blocs enfants)
+- Impossible de supprimer les blocs racine (affine:page)
+- Les métadonnées (createdAt, updatedAt, createdBy, updatedBy) sont gérées automatiquement
 
 ## 🏗️ Architecture
 
