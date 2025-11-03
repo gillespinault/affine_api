@@ -1,4 +1,4 @@
-import type { FetchLike, IOFactory } from './affine-client';
+import type { FetchLike, IOFactory } from './affine-client.js';
 
 export interface AffineClientOptions {
   /** Base URL of the AFFiNE instance. */

@@ -1,4 +1,4 @@
-import { createServer } from './server';
+import { createServer } from './server.js';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const AFFINE_BASE_URL = process.env.AFFINE_BASE_URL || 'https://affine.robotsinlove.be';

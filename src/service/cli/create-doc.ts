@@ -2,7 +2,7 @@
 import process from 'node:process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { AffineClient, nanoid } from '../../client';
+import { AffineClient, nanoid } from '../../client.js';
 
 type ParsedArgs = Record<string, string | boolean>;
 
