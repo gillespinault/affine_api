@@ -8,13 +8,13 @@ API REST complète pour gérer programmatiquement des documents et dossiers dans
 
 Ce projet fournit :
 - **Client TypeScript** (`AffineClient`) - Authentification, Socket.IO, mutations Yjs
-- **API REST Fastify** - 15 endpoints pour documents, folders, et workspace
+- **API REST Fastify** - 18 endpoints pour documents, folders, tags, et workspace
 - **Support Markdown** - Import/export avec GitHub Flavored Markdown
 - **Lecture structurée** - Extraction des blocs Yjs en JSON exploitable
 - **Opérations sur les blocs** - CRUD complet sur les blocs individuels (paragraphes, listes, etc.)
 - **Production-ready** - Déployé sur Dokploy avec SSL Let's Encrypt + webhook auto-deploy
 
-## 📚 API Endpoints (15 total)
+## 📚 API Endpoints (18 total)
 
 ### Health Check
 ```bash
@@ -43,6 +43,13 @@ DELETE /workspaces/:workspaceId/documents/:docId/blocks/:blockId  # Supprimer un
 ```bash
 POST   /workspaces/:workspaceId/folders                # Créer dossier
 POST   /workspaces/:workspaceId/documents/:docId/move  # Déplacer document
+```
+
+### Tags (3 endpoints - NEW)
+```bash
+GET    /workspaces/:workspaceId/tags         # Lister tous les tags
+POST   /workspaces/:workspaceId/tags         # Créer un tag
+DELETE /workspaces/:workspaceId/tags/:tagId  # Supprimer un tag
 ```
 
 ### Workspace (1 endpoint)
@@ -305,6 +312,130 @@ curl -X DELETE https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/docume
 - La suppression est récursive (supprime aussi les blocs enfants)
 - Impossible de supprimer les blocs racine (affine:page)
 - Les métadonnées (createdAt, updatedAt, createdBy, updatedBy) sont gérées automatiquement
+
+### Gestion des tags (NEW)
+
+#### Lister tous les tags
+
+```bash
+curl -X GET https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/tags
+```
+
+**Réponse** :
+```json
+{
+  "tags": [
+    {
+      "id": "rs-1en1xsootkpql0AZBN",
+      "name": "rs-1en1xsootkpql0AZBN",
+      "count": 6
+    },
+    {
+      "id": "CKFttRPiaBYmrtvIYqBVm",
+      "name": "CKFttRPiaBYmrtvIYqBVm",
+      "count": 2
+    }
+  ]
+}
+```
+
+**Notes** :
+- Les tags sont triés par usage (décroissant) puis alphabétiquement
+- `count` indique le nombre de documents utilisant ce tag
+- `id` et `name` sont identiques pour l'instant
+
+#### Créer un tag
+
+```bash
+curl -X POST https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/tags \
+  -H "Content-Type: application/json" \
+  -d '{"name": "documentation"}'
+```
+
+**Réponse** :
+```json
+{
+  "id": "documentation",
+  "name": "documentation",
+  "count": 0
+}
+```
+
+**⚠️ Limitation importante** :
+Les tags créés via l'API sont stockés dans les documents mais **ne sont PAS visibles dans l'UI AFFiNE** car ils ne sont pas enregistrés dans le registre système des tags.
+
+**Solutions de contournement** :
+1. **Créer d'abord les tags dans l'UI AFFiNE** - Ouvrir AFFiNE, créer le tag manuellement, puis l'utiliser via l'API
+2. **Utiliser les tags existants** - Lister les tags avec GET /tags et utiliser leurs IDs
+
+#### Supprimer un tag
+
+```bash
+curl -X DELETE https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/tags/TAG_ID
+```
+
+**Réponse** :
+```json
+{
+  "tagId": "documentation",
+  "deleted": true,
+  "documentsUpdated": 3
+}
+```
+
+**Comportement** :
+- Supprime le tag de TOUS les documents qui l'utilisent
+- Retourne le nombre de documents mis à jour
+- Retourne 404 si le tag n'existe pas ou n'est utilisé par aucun document
+
+#### Appliquer des tags à un document
+
+```bash
+curl -X PATCH https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/documents/DOC_ID/properties \
+  -H "Content-Type: application/json" \
+  -d '{"tags": ["tag-existant-1", "tag-existant-2"]}'
+```
+
+**⚠️ Important** :
+- Utiliser uniquement des tags **déjà créés dans l'UI AFFiNE**
+- Les tags inexistants seront stockés mais invisibles dans l'UI
+- Pour voir quels tags sont disponibles : `GET /workspaces/:id/tags`
+
+**Réponse** :
+```json
+{
+  "docId": "abc123",
+  "timestamp": 1762188123445,
+  "updated": true
+}
+```
+
+#### Workflow recommandé pour les tags
+
+**Option 1 - Tags pré-existants (recommandé)** :
+```bash
+# 1. Lister les tags disponibles
+curl https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/tags
+
+# 2. Utiliser un tag existant
+curl -X PATCH .../documents/DOC_ID/properties \
+  -d '{"tags": ["rs-1en1xsootkpql0AZBN"]}'
+```
+
+**Option 2 - Créer via UI puis utiliser** :
+1. Ouvrir AFFiNE UI
+2. Créer manuellement les tags souhaités ("api", "documentation", etc.)
+3. Récupérer leurs IDs via `GET /tags`
+4. Utiliser ces IDs dans `PATCH /properties`
+
+**Pourquoi cette limitation ?**
+
+AFFiNE utilise un registre centralisé de tags (probablement dans `workspace meta.tagOptions` ou document système) qui mappe les IDs de tags vers leurs noms et couleurs affichés dans l'UI. Notre API ne modifie actuellement que les références de tags dans les documents, pas ce registre système.
+
+**Roadmap** :
+- [ ] Reverse engineering du format `tagOptions` dans AFFiNE
+- [ ] Implémentation de la création complète de tags (registre + documents)
+- [ ] Support des couleurs et métadonnées de tags
 
 ## 🏗️ Architecture
 
