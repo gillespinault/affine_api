@@ -1,0 +1,182 @@
+openapi: 3.1.0
+info:
+  title: ServerLab AFFiNE API
+  version: 0.1.0
+  description: REST façade for interacting with AFFiNE workspaces via the ServerLab toolkit.
+servers:
+  - url: http://localhost:3000
+    description: Local runtime
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      operationId: getHealthz
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /workspaces/{workspaceId}/documents:
+    get:
+      summary: List documents in a workspace
+      operationId: listDocuments
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: Collection of documents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  documents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DocumentSummary'
+    post:
+      summary: Create a document
+      operationId: createDocument
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentRequest'
+      responses:
+        '201':
+          description: Document created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentSummary'
+  /workspaces/{workspaceId}/documents/{docId}:
+    get:
+      summary: Retrieve a document snapshot
+      operationId: getDocument
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/DocumentId'
+      responses:
+        '200':
+          description: Document snapshot encoded as base64 Yjs update
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentSnapshot'
+        '404':
+          description: Document not found
+    patch:
+      summary: Update a document
+      operationId: updateDocument
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/DocumentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentRequest'
+      responses:
+        '200':
+          description: Updated document metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentSummary'
+        '404':
+          description: Document not found
+    delete:
+      summary: Delete a document
+      operationId: deleteDocument
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/DocumentId'
+      responses:
+        '204':
+          description: Document deleted
+components:
+  parameters:
+    WorkspaceId:
+      name: workspaceId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: AFFiNE workspace identifier
+    DocumentId:
+      name: docId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: AFFiNE document identifier
+  schemas:
+    DocumentSummary:
+      type: object
+      properties:
+        docId:
+          type: string
+        title:
+          type: string
+          nullable: true
+        createDate:
+          type: integer
+          format: int64
+          nullable: true
+        updatedDate:
+          type: integer
+          format: int64
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+        folderId:
+          type: string
+          nullable: true
+        folderNodeId:
+          type: string
+          nullable: true
+      required:
+        - docId
+        - tags
+    DocumentSnapshot:
+      allOf:
+        - $ref: '#/components/schemas/DocumentSummary'
+        - type: object
+          properties:
+            update:
+              type: string
+              description: Base64-encoded Yjs update representing the document state
+    DocumentRequest:
+      type: object
+      properties:
+        docId:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        markdown:
+          type: string
+        folderId:
+          type: string
+          nullable: true
+        folderNodeId:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
