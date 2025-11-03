@@ -412,5 +412,78 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     },
   );
 
+  app.get('/workspaces/:workspaceId/tags', async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+    const client = createClient(config);
+    try {
+      await client.signIn(email, password);
+      const tags = await client.listTags(workspaceId);
+      reply.send({ tags });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  app.post('/workspaces/:workspaceId/tags', async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+    const body = (request.body ?? {}) as { name: string };
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+    if (!body.name || body.name.trim().length === 0) {
+      reply.code(400).send({ error: 'Tag name is required and cannot be empty' });
+      return;
+    }
+
+    const client = createClient(config);
+    try {
+      await client.signIn(email, password);
+
+      // Check if tag already exists
+      const existingTags = await client.listTags(workspaceId);
+      const tagExists = existingTags.some(t => t.id === body.name.trim());
+
+      if (tagExists) {
+        reply.code(409).send({ error: 'Tag already exists', tagId: body.name.trim() });
+        return;
+      }
+
+      // Tag is created simply by using it (no separate storage)
+      const tagId = body.name.trim();
+      reply.code(201).send({
+        id: tagId,
+        name: tagId,
+        count: 0,
+      });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  app.delete('/workspaces/:workspaceId/tags/:tagId', async (request, reply) => {
+    const { workspaceId, tagId } = request.params as { workspaceId: string; tagId: string };
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+    const client = createClient(config);
+    try {
+      await client.signIn(email, password);
+      const result = await client.deleteTag(workspaceId, tagId);
+
+      if (!result.deleted) {
+        reply.code(404).send({ error: 'Tag not found or not used by any document' });
+        return;
+      }
+
+      reply.send({
+        tagId,
+        deleted: true,
+        documentsUpdated: result.documentsUpdated,
+      });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
   return app;
 }

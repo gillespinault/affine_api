@@ -82,6 +82,12 @@ export interface DocumentContent extends DocumentSummary {
   blocks: BlockContent[];
 }
 
+export interface TagInfo {
+  id: string;
+  name: string;
+  count: number;
+}
+
 export function parseSetCookies(headers: Array<string | undefined> = []) {
   const jar = new Map<string, string>();
   for (const header of headers) {
@@ -893,6 +899,70 @@ export class AffineClient {
     });
 
     return results;
+  }
+
+  async listTags(workspaceId: string): Promise<TagInfo[]> {
+    const documents = await this.listDocuments(workspaceId);
+
+    // Count tag usage across all documents
+    const tagCounts = new Map<string, number>();
+    for (const doc of documents) {
+      for (const tagId of doc.tags) {
+        tagCounts.set(tagId, (tagCounts.get(tagId) || 0) + 1);
+      }
+    }
+
+    // Convert to TagInfo array
+    const tags: TagInfo[] = [];
+    for (const [tagId, count] of tagCounts.entries()) {
+      tags.push({
+        id: tagId,
+        name: tagId, // For now, ID and name are the same
+        count,
+      });
+    }
+
+    // Sort by count (descending) then by name
+    tags.sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return a.name.localeCompare(b.name);
+    });
+
+    return tags;
+  }
+
+  async deleteTag(workspaceId: string, tagId: string): Promise<{ deleted: boolean; documentsUpdated: number }> {
+    await this.joinWorkspace(workspaceId);
+
+    const documents = await this.listDocuments(workspaceId);
+    const docsWithTag = documents.filter(doc => doc.tags.includes(tagId));
+
+    if (docsWithTag.length === 0) {
+      return { deleted: false, documentsUpdated: 0 };
+    }
+
+    // Remove tag from all documents that have it
+    const timestamp = Date.now();
+    await Promise.all(
+      docsWithTag.map(doc => {
+        const newTags = doc.tags.filter(t => t !== tagId);
+        return Promise.all([
+          this.upsertDocProperties(workspaceId, {
+            docId: doc.docId,
+            timestamp,
+            tags: newTags,
+          }),
+          this.updateWorkspaceMeta(workspaceId, {
+            docId: doc.docId,
+            title: doc.title || 'Untitled',
+            timestamp,
+            tags: newTags,
+          }),
+        ]);
+      })
+    );
+
+    return { deleted: true, documentsUpdated: docsWithTag.length };
   }
 
   async getDocument(workspaceId: string, docId: string): Promise<DocumentSnapshot> {
