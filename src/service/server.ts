@@ -171,6 +171,7 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     try {
       await client.signIn(email, password);
       await client.connectSocket();
+      await client.joinWorkspace(workspaceId);
 
       const result = await client.createFolder(workspaceId, {
         name: body.name ?? 'New folder',
@@ -200,6 +201,7 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
       try {
         await client.signIn(email, password);
         await client.connectSocket();
+        await client.joinWorkspace(workspaceId);
 
         const result = await client.registerDocInFolder(workspaceId, {
           parentFolderId: body.folderId ?? null,
@@ -233,6 +235,7 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     try {
       await client.signIn(email, password);
       await client.connectSocket();
+      await client.joinWorkspace(workspaceId);
 
       await client.updateWorkspaceMeta(workspaceId, {
         docId: body.docId,
@@ -263,6 +266,7 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
       try {
         await client.signIn(email, password);
         await client.connectSocket();
+        await client.joinWorkspace(workspaceId);
 
         const timestamp = Date.now();
         await client.upsertDocProperties(workspaceId, {
