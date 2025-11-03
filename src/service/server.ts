@@ -142,6 +142,101 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     },
   );
 
+  app.post(
+    '/workspaces/:workspaceId/documents/:docId/blocks',
+    async (request, reply) => {
+      const { workspaceId, docId } = request.params as {
+        workspaceId: string;
+        docId: string;
+      };
+      const body = (request.body ?? {}) as {
+        flavour: string;
+        parentBlockId: string;
+        props?: Record<string, unknown>;
+        position?: 'start' | 'end' | number;
+      };
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+      if (!body.flavour || !body.parentBlockId) {
+        reply.code(400).send({ error: 'flavour and parentBlockId are required' });
+        return;
+      }
+
+      const client = createClient(config);
+      try {
+        await client.signIn(email, password);
+        await client.connectSocket();
+
+        const result = await client.addBlock(workspaceId, docId, {
+          flavour: body.flavour,
+          parentBlockId: body.parentBlockId,
+          props: body.props,
+          position: body.position,
+        });
+
+        reply.code(201).send(result);
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
+  app.patch(
+    '/workspaces/:workspaceId/documents/:docId/blocks/:blockId',
+    async (request, reply) => {
+      const { workspaceId, docId, blockId } = request.params as {
+        workspaceId: string;
+        docId: string;
+        blockId: string;
+      };
+      const body = (request.body ?? {}) as {
+        props: Record<string, unknown>;
+      };
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+      if (!body.props || Object.keys(body.props).length === 0) {
+        reply.code(400).send({ error: 'props object is required and cannot be empty' });
+        return;
+      }
+
+      const client = createClient(config);
+      try {
+        await client.signIn(email, password);
+        await client.connectSocket();
+
+        const result = await client.updateBlock(workspaceId, docId, blockId, body.props);
+
+        reply.send(result);
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
+  app.delete(
+    '/workspaces/:workspaceId/documents/:docId/blocks/:blockId',
+    async (request, reply) => {
+      const { workspaceId, docId, blockId } = request.params as {
+        workspaceId: string;
+        docId: string;
+        blockId: string;
+      };
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+      const client = createClient(config);
+      try {
+        await client.signIn(email, password);
+        await client.connectSocket();
+
+        const result = await client.deleteBlock(workspaceId, docId, blockId);
+
+        reply.code(200).send(result);
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
   app.patch('/workspaces/:workspaceId/documents/:docId', async (request, reply) => {
     const { workspaceId, docId } = request.params as { workspaceId: string; docId: string };
     const body = (request.body ?? {}) as DocumentPayload;

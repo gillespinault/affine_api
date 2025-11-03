@@ -1223,4 +1223,184 @@ export class AffineClient {
       await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
     }
   }
+
+  async addBlock(
+    workspaceId: string,
+    docId: string,
+    {
+      flavour,
+      parentBlockId,
+      props = {},
+      position,
+    }: {
+      flavour: string;
+      parentBlockId: string;
+      props?: Record<string, unknown>;
+      position?: 'start' | 'end' | number;
+    },
+  ) {
+    if (!this.userId) {
+      throw new Error('User id unavailable: signIn must complete before addBlock.');
+    }
+
+    await this.joinWorkspace(workspaceId);
+
+    const { doc, stateVector } = await this.loadWorkspaceDoc(workspaceId, docId);
+    const blocks = doc.getMap<Y.Map<unknown>>('blocks');
+    const parentBlock = blocks.get(parentBlockId);
+
+    if (!(parentBlock instanceof Y.Map)) {
+      throw new Error(`Parent block ${parentBlockId} not found`);
+    }
+
+    const blockId = nanoid();
+    const now = Date.now();
+
+    doc.transact(() => {
+      // Create new block
+      const blockMap = new Y.Map<unknown>();
+      blockMap.set('sys:id', blockId);
+      blockMap.set('sys:flavour', flavour);
+      blockMap.set('sys:parent', parentBlockId);
+      blockMap.set('sys:children', new Y.Array());
+
+      // Set properties
+      Object.entries(props).forEach(([key, value]) => {
+        const propKey = key.startsWith('prop:') ? key : `prop:${key}`;
+        if (typeof value === 'string' && (key === 'text' || key === 'title')) {
+          const ytext = new Y.Text();
+          ytext.insert(0, value);
+          blockMap.set(propKey, ytext);
+        } else {
+          blockMap.set(propKey, value);
+        }
+      });
+
+      // Add metadata
+      blockMap.set('prop:meta:createdAt', now);
+      blockMap.set('prop:meta:createdBy', this.userId);
+      blockMap.set('prop:meta:updatedAt', now);
+      blockMap.set('prop:meta:updatedBy', this.userId);
+
+      blocks.set(blockId, blockMap);
+
+      // Update parent's children
+      const parentChildren = parentBlock.get('sys:children');
+      if (parentChildren instanceof Y.Array) {
+        if (position === 'start') {
+          parentChildren.unshift([blockId]);
+        } else if (typeof position === 'number') {
+          parentChildren.insert(position, [blockId]);
+        } else {
+          // 'end' or undefined
+          parentChildren.push([blockId]);
+        }
+      }
+    });
+
+    await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
+
+    return { blockId, timestamp: now };
+  }
+
+  async updateBlock(
+    workspaceId: string,
+    docId: string,
+    blockId: string,
+    props: Record<string, unknown>,
+  ) {
+    if (!this.userId) {
+      throw new Error('User id unavailable: signIn must complete before updateBlock.');
+    }
+
+    await this.joinWorkspace(workspaceId);
+
+    const { doc, stateVector } = await this.loadWorkspaceDoc(workspaceId, docId);
+    const blocks = doc.getMap<Y.Map<unknown>>('blocks');
+    const block = blocks.get(blockId);
+
+    if (!(block instanceof Y.Map)) {
+      throw new Error(`Block ${blockId} not found`);
+    }
+
+    const now = Date.now();
+
+    doc.transact(() => {
+      Object.entries(props).forEach(([key, value]) => {
+        const propKey = key.startsWith('prop:') ? key : `prop:${key}`;
+
+        if (typeof value === 'string' && (key === 'text' || key === 'title')) {
+          // Update Y.Text
+          const existing = block.get(propKey);
+          if (existing instanceof Y.Text) {
+            existing.delete(0, existing.length);
+            existing.insert(0, value);
+          } else {
+            const ytext = new Y.Text();
+            ytext.insert(0, value);
+            block.set(propKey, ytext);
+          }
+        } else {
+          block.set(propKey, value);
+        }
+      });
+
+      block.set('prop:meta:updatedAt', now);
+      block.set('prop:meta:updatedBy', this.userId);
+    });
+
+    await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
+
+    return { blockId, timestamp: now };
+  }
+
+  async deleteBlock(workspaceId: string, docId: string, blockId: string) {
+    await this.joinWorkspace(workspaceId);
+
+    const { doc, stateVector } = await this.loadWorkspaceDoc(workspaceId, docId);
+    const blocks = doc.getMap<Y.Map<unknown>>('blocks');
+    const block = blocks.get(blockId);
+
+    if (!(block instanceof Y.Map)) {
+      throw new Error(`Block ${blockId} not found`);
+    }
+
+    const parentId = block.get('sys:parent');
+    if (typeof parentId !== 'string') {
+      throw new Error(`Block ${blockId} has no parent (cannot delete root block)`);
+    }
+
+    doc.transact(() => {
+      // Remove from parent's children
+      const parentBlock = blocks.get(parentId);
+      if (parentBlock instanceof Y.Map) {
+        const parentChildren = parentBlock.get('sys:children');
+        if (parentChildren instanceof Y.Array) {
+          for (let i = parentChildren.length - 1; i >= 0; i--) {
+            if (parentChildren.get(i) === blockId) {
+              parentChildren.delete(i, 1);
+              break;
+            }
+          }
+        }
+      }
+
+      // Delete the block itself
+      blocks.delete(blockId);
+
+      // Recursively delete children
+      const children = block.get('sys:children');
+      if (children instanceof Y.Array) {
+        children.toArray().forEach((childId) => {
+          if (typeof childId === 'string') {
+            blocks.delete(childId);
+          }
+        });
+      }
+    });
+
+    await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
+
+    return { blockId, deleted: true };
+  }
 }
