@@ -162,5 +162,121 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     }
   });
 
+  app.post('/workspaces/:workspaceId/folders', async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+    const body = (request.body ?? {}) as { name?: string; parentId?: string | null };
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+    const client = createClient(config);
+    try {
+      await client.signIn(email, password);
+      await client.connectSocket();
+
+      const result = await client.createFolder(workspaceId, {
+        name: body.name ?? 'New folder',
+        parentId: body.parentId ?? null,
+      });
+
+      reply.code(201).send(result);
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  app.post(
+    '/workspaces/:workspaceId/documents/:docId/move',
+    async (request, reply) => {
+      const { workspaceId, docId } = request.params as {
+        workspaceId: string;
+        docId: string;
+      };
+      const body = (request.body ?? {}) as {
+        folderId?: string | null;
+        folderNodeId?: string;
+      };
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+      const client = createClient(config);
+      try {
+        await client.signIn(email, password);
+        await client.connectSocket();
+
+        const result = await client.registerDocInFolder(workspaceId, {
+          parentFolderId: body.folderId ?? null,
+          docId,
+          nodeId: body.folderNodeId,
+        });
+
+        reply.send(result);
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
+  app.patch('/workspaces/:workspaceId/meta', async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+    const body = (request.body ?? {}) as {
+      docId: string;
+      title: string;
+      timestamp?: number;
+      tags?: string[];
+    };
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+    if (!body.docId || !body.title) {
+      reply.code(400).send({ error: 'docId and title are required' });
+      return;
+    }
+
+    const client = createClient(config);
+    try {
+      await client.signIn(email, password);
+      await client.connectSocket();
+
+      await client.updateWorkspaceMeta(workspaceId, {
+        docId: body.docId,
+        title: body.title,
+        timestamp: body.timestamp ?? Date.now(),
+        tags: body.tags,
+      });
+
+      reply.send({ workspaceId, updated: true });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  app.patch(
+    '/workspaces/:workspaceId/documents/:docId/properties',
+    async (request, reply) => {
+      const { workspaceId, docId } = request.params as {
+        workspaceId: string;
+        docId: string;
+      };
+      const body = (request.body ?? {}) as {
+        tags?: string[];
+      };
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+      const client = createClient(config);
+      try {
+        await client.signIn(email, password);
+        await client.connectSocket();
+
+        const timestamp = Date.now();
+        await client.upsertDocProperties(workspaceId, {
+          docId,
+          timestamp,
+          tags: body.tags,
+        });
+
+        reply.send({ docId, timestamp, updated: true });
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
   return app;
 }
