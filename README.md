@@ -12,7 +12,8 @@ Ce projet fournit :
 - **Support Markdown** – Import/export avec GitHub Flavored Markdown
 - **Lecture structurée** – Extraction des blocs Yjs en JSON exploitable
 - **Opérations sur les blocs** – CRUD complet sur les blocs individuels (paragraphes, listes, etc.)
-- **Mode Edgeless / Canvas** – Manipulation programmatique de diagrammes, flowcharts, mind maps
+- **Mode Edgeless / Canvas** ✅ – Création de shapes, connectors, text avec defaults BlockSuite automatiques
+- **Configuration du mode** ✅ – Définir le mode par défaut (page/edgeless) d'un document via API
 - **Intégrations MCP** – Compatibilité avec `affine-mcp-server` (analyse détaillée dans `docs/reference/affine-mcp-analysis.md`)
 - **Production-ready** – Déployé sur Dokploy avec SSL Let's Encrypt + webhook auto-deploy
 
@@ -37,7 +38,7 @@ POST   /workspaces/:workspaceId/documents                    # Créer document
 GET    /workspaces/:workspaceId/documents                    # Lister documents
 GET    /workspaces/:workspaceId/documents/:docId             # Récupérer document (snapshot)
 GET    /workspaces/:workspaceId/documents/:docId/content     # Lire contenu structuré
-PATCH  /workspaces/:workspaceId/documents/:docId             # Modifier document
+PATCH  /workspaces/:workspaceId/documents/:docId             # Modifier document (title, content, primaryMode, folder)
 DELETE /workspaces/:workspaceId/documents/:docId             # Supprimer document
 PATCH  /workspaces/:workspaceId/documents/:docId/properties  # Modifier tags
 ```
@@ -49,10 +50,10 @@ PATCH  /workspaces/:workspaceId/documents/:docId/blocks/:blockId  # Modifier un 
 DELETE /workspaces/:workspaceId/documents/:docId/blocks/:blockId  # Supprimer un bloc
 ```
 
-### Edgeless Mode (5 endpoints - Priority #3 en cours de refactor)
+### Edgeless Mode (5 endpoints - ✅ FONCTIONNEL)
 ```bash
 GET    /workspaces/:workspaceId/documents/:docId/edgeless                      # Lister éléments canvas
-POST   /workspaces/:workspaceId/documents/:docId/edgeless/elements             # Créer élément
+POST   /workspaces/:workspaceId/documents/:docId/edgeless/elements             # Créer élément (shape, connector, text, group, mindmap)
 GET    /workspaces/:workspaceId/documents/:docId/edgeless/elements/:elementId  # Récupérer élément
 PATCH  /workspaces/:workspaceId/documents/:docId/edgeless/elements/:elementId  # Modifier élément
 DELETE /workspaces/:workspaceId/documents/:docId/edgeless/elements/:elementId  # Supprimer élément
@@ -935,11 +936,46 @@ curl -s -X POST "https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/docu
 - `mindmap` - Mind maps (structure identifiée, implémentation à venir)
 
 **Roadmap Edgeless API** :
+- [x] Support des element defaults (shape, connector, text) - ✅ Résolu
+- [x] Configuration du mode par défaut (primaryMode) - ✅ Résolu
 - [ ] Support complet de `group` et `mindmap`
 - [ ] Gestion du z-order (réordonner les éléments)
 - [ ] Initialisation automatique du surface block
 - [ ] Support des images et media dans le canvas
 - [ ] Opérations batch (créer plusieurs éléments en une requête)
+
+### Configurer le mode par défaut d'un document
+
+AFFiNE supporte deux modes d'affichage pour les documents :
+- **`page`** (défaut) - Mode éditeur de texte classique
+- **`edgeless`** - Mode canvas pour diagrammes et mind maps
+
+Vous pouvez configurer le mode par défaut via l'API :
+
+```bash
+# Passer un document en mode edgeless par défaut
+curl -X PATCH https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/documents/DOC_ID \
+  -H "Content-Type: application/json" \
+  -d '{"primaryMode": "edgeless"}'
+```
+
+**Réponse** :
+```json
+{
+  "docId": "MSberxztj0DMWATG61itf",
+  "title": "Edgeless API Test",
+  "tags": [],
+  "folderId": null,
+  "folderNodeId": null,
+  "timestamp": 1762343236909
+}
+```
+
+**Notes** :
+- Le `primaryMode` est stocké dans `db$workspace$docProperties` (synchronisé via CRDT)
+- Le changement est persistant et affecte tous les clients
+- À l'ouverture du document, l'UI AFFiNE utilisera ce mode par défaut
+- Peut être combiné avec d'autres mises à jour : `{"title": "Nouveau titre", "primaryMode": "edgeless"}`
 
 ## 🏗️ Architecture
 
