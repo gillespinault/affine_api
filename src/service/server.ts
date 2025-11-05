@@ -434,6 +434,49 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
   });
 
   /**
+   * GET /workspaces/:id/debug/folders-nodes
+   * DEBUG: Dump all nodes from db$workspace$folders
+   */
+  app.get('/workspaces/:id/debug/folders-nodes', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const client = createClient(config);
+
+    try {
+      const { email, password } = await credentialProvider.getCredentials(id);
+      await client.signIn(email, password);
+      await client.connectSocket();
+      await client.joinWorkspace(id);
+
+      const foldersId = `db$${id}$folders`;
+      const { doc } = await client.loadWorkspaceDoc(id, foldersId);
+
+      const nodes: any[] = [];
+      doc.share.forEach((_, nodeId) => {
+        const nodeMap = doc.getMap(nodeId);
+        if (!nodeMap || nodeMap.size === 0) {
+          nodes.push({ nodeId, empty: true });
+          return;
+        }
+
+        nodes.push({
+          nodeId,
+          type: nodeMap.get('type'),
+          data: nodeMap.get('data'),
+          parentId: nodeMap.get('parentId') || null,
+          index: nodeMap.get('index'),
+        });
+      });
+
+      reply.send({ workspaceId: id, totalNodes: nodes.length, nodes });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  /**
    * GET /workspaces/:workspaceId/folders/:folderId
    * Get contents of a specific folder
    */
