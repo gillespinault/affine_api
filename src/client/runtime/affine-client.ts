@@ -5,6 +5,7 @@ import { URL } from 'node:url';
 import type { AffineClientOptions } from './types.js';
 import { createDocYStructure, nanoid } from './doc-structure.js';
 import { createDocYStructureFromMarkdown } from '../markdown/markdown-to-yjs.js';
+import { applyElementDefaults, transformPropsToYjs } from './element-defaults.js';
 
 export const DEFAULT_BASE_URL =
   process.env.AFFINE_BASE_URL || 'https://affine.robotsinlove.be';
@@ -1578,8 +1579,12 @@ export class AffineClient {
     // Generate element ID if not provided
     const elementId = (elementData.id as string) || nanoid();
 
+    // Apply BlockSuite defaults based on element type
+    // This mimics the @field() decorator behavior
+    const withDefaults = applyElementDefaults(elementData);
+
     // Serialize xywh if it's an array
-    const processedElement: Record<string, unknown> = { ...elementData, id: elementId };
+    const processedElement: Record<string, unknown> = { ...withDefaults, id: elementId };
     if ('xywh' in processedElement && Array.isArray(processedElement.xywh)) {
       processedElement.xywh = JSON.stringify(processedElement.xywh);
     }
@@ -1604,9 +1609,12 @@ export class AffineClient {
       processedElement.seed = Math.floor(Math.random() * 2147483647);
     }
 
+    // Apply Yjs transformations (e.g., text → Y.Text)
+    const finalElement = transformPropsToYjs(processedElement);
+
     // Add element to surface
     doc.transact(() => {
-      this.setElement(elementsMap, elementId, processedElement);
+      this.setElement(elementsMap, elementId, finalElement);
     });
 
     await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
