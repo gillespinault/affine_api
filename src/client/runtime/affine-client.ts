@@ -586,7 +586,8 @@ export class AffineClient {
       docId,
       timestamp,
       tags,
-    }: { docId: string; timestamp: number; tags?: string[] },
+      primaryMode,
+    }: { docId: string; timestamp: number; tags?: string[]; primaryMode?: 'page' | 'edgeless' },
   ) {
     const docPropsId = `db$${workspaceId}$docProperties`;
     const { doc, stateVector } = await this.loadWorkspaceDoc(
@@ -596,7 +597,9 @@ export class AffineClient {
 
     const propsEntry = doc.getMap<unknown>(docId);
     propsEntry.set('id', docId);
-    propsEntry.set('primaryMode', 'page');
+    if (primaryMode !== undefined) {
+      propsEntry.set('primaryMode', primaryMode);
+    }
     propsEntry.set('edgelessColorTheme', 'light');
     if (this.userId) {
       propsEntry.set('createdBy', this.userId);
@@ -1104,6 +1107,7 @@ export class AffineClient {
       folderId,
       folderNodeId,
       tags,
+      primaryMode,
     }: {
       title?: string;
       content?: string;
@@ -1111,6 +1115,7 @@ export class AffineClient {
       folderId?: string | null;
       folderNodeId?: string | null;
       tags?: string[];
+      primaryMode?: 'page' | 'edgeless';
     } = {},
   ) {
     if (!this.userId) {
@@ -1216,6 +1221,7 @@ export class AffineClient {
       docId,
       timestamp,
       tags: tagsToApply,
+      primaryMode,
     });
 
     const folderNode = await this.syncDocumentFolder(workspaceId, {

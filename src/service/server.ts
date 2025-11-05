@@ -10,6 +10,7 @@ type DocumentPayload = {
   folderNodeId?: string | null;
   docId?: string;
   tags?: string[];
+  primaryMode?: 'page' | 'edgeless';
 };
 
 export interface CredentialProvider {
@@ -256,6 +257,7 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
         folderId: body.folderId,
         folderNodeId: body.folderNodeId,
         tags,
+        primaryMode: body.primaryMode,
       });
 
       reply.send(result);
