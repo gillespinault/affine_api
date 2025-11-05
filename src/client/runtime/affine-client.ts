@@ -1972,6 +1972,8 @@ export class AffineClient {
       result.workspaces.map(async ws => {
         let name: string | null = null;
         try {
+          // Must join workspace before loading its documents
+          await this.joinWorkspace(ws.id);
           const { doc } = await this.loadWorkspaceDoc(ws.id, ws.id);
           const meta = doc.getMap<unknown>('meta');
           const nameValue = meta.get('name');

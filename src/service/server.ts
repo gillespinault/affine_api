@@ -347,6 +347,7 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
       // Sign in with default credentials (assumes shared access)
       const { email, password } = await credentialProvider.getCredentials('default');
       await client.signIn(email, password);
+      await client.connectSocket();
 
       const workspaces = await client.listWorkspaces();
       reply.send({ workspaces });
@@ -369,6 +370,8 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     try {
       const { email, password } = await credentialProvider.getCredentials(id);
       await client.signIn(email, password);
+      await client.connectSocket();
+      await client.joinWorkspace(id);
 
       const workspace = await client.getWorkspaceDetails(id);
       reply.send(workspace);
