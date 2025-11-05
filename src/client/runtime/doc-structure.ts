@@ -59,10 +59,13 @@ export function createDocYStructure({
   surfaceMap.set('sys:flavour', 'affine:surface');
   surfaceMap.set('sys:parent', pageId);
   surfaceMap.set('sys:children', surfaceChildren);
-  surfaceMap.set('prop:elements', {
-    type: '$blocksuite:internal:native$',
-    value: {},
-  });
+
+  // Initialize elements with Y.Map for proper CRDT synchronization
+  const elementsWrapper = new Y.Map<unknown>();
+  elementsWrapper.set('type', '$blocksuite:internal:native$');
+  elementsWrapper.set('value', new Y.Map<unknown>()); // Y.Map instead of plain object!
+  surfaceMap.set('prop:elements', elementsWrapper);
+
   blocks.set(surfaceId, surfaceMap);
 
   const noteChildren = new Y.Array<string>();
