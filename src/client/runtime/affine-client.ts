@@ -1510,22 +1510,26 @@ export class AffineClient {
 
     const surfaceBlock = surfaceBlockFound; // Type narrowing
 
-    // Extract elements
-    const elementsWrapper = surfaceBlock.get('prop:elements') as unknown;
-    if (!elementsWrapper || typeof elementsWrapper !== 'object') {
+    // Extract elements (YMap structure)
+    const elementsWrapper = surfaceBlock.get('prop:elements');
+    if (!(elementsWrapper instanceof Y.Map)) {
       return [];
     }
 
-    const elementsValue = (elementsWrapper as { value?: Record<string, unknown> }).value;
-    if (!elementsValue || typeof elementsValue !== 'object') {
+    if (elementsWrapper.get('type') !== '$blocksuite:internal:native$') {
+      return [];
+    }
+
+    const elementsMap = elementsWrapper.get('value');
+    if (!(elementsMap instanceof Y.Map)) {
       return [];
     }
 
     // Convert to array, parsing xywh strings
     const elements: Array<Record<string, unknown>> = [];
-    for (const [elementId, elementData] of Object.entries(elementsValue)) {
+    elementsMap.forEach((elementData: unknown) => {
       if (typeof elementData === 'object' && elementData !== null) {
-        const element = { ...elementData };
+        const element = { ...(elementData as Record<string, unknown>) };
 
         // Parse xywh if it's a string
         if ('xywh' in element && typeof element.xywh === 'string') {
@@ -1538,7 +1542,7 @@ export class AffineClient {
 
         elements.push(element);
       }
-    }
+    });
 
     return elements;
   }
@@ -1577,15 +1581,20 @@ export class AffineClient {
 
     const surfaceBlock = surfaceBlockFound; // Type narrowing
 
-    // Get elements container
-    const elementsWrapper = surfaceBlock.get('prop:elements') as unknown;
-    if (!elementsWrapper || typeof elementsWrapper !== 'object') {
-      throw new Error('Elements property not found in surface block');
+    // Get elements container (YMap structure)
+    const elementsWrapper = surfaceBlock.get('prop:elements');
+    if (!(elementsWrapper instanceof Y.Map)) {
+      throw new Error('Elements property not found or invalid in surface block');
     }
 
-    const elementsValue = (elementsWrapper as { value?: Record<string, unknown> }).value;
-    if (!elementsValue || typeof elementsValue !== 'object') {
-      throw new Error('Elements value not found');
+    // Check for native type marker
+    if (elementsWrapper.get('type') !== '$blocksuite:internal:native$') {
+      throw new Error('Elements property is not a native BlockSuite type');
+    }
+
+    const elementsMap = elementsWrapper.get('value');
+    if (!(elementsMap instanceof Y.Map)) {
+      throw new Error('Elements value is not a YMap');
     }
 
     // Generate element ID if not provided
@@ -1599,10 +1608,15 @@ export class AffineClient {
 
     // Generate index if not provided
     if (!processedElement.index) {
-      const existingIndices = Object.values(elementsValue)
-        .filter((el): el is Record<string, unknown> => typeof el === 'object' && el !== null)
-        .map(el => el.index as string)
-        .filter((idx): idx is string => typeof idx === 'string');
+      const existingIndices: string[] = [];
+      elementsMap.forEach((el: unknown) => {
+        if (typeof el === 'object' && el !== null && 'index' in el) {
+          const idx = (el as { index: unknown }).index;
+          if (typeof idx === 'string') {
+            existingIndices.push(idx);
+          }
+        }
+      });
 
       processedElement.index = this.generateNextIndex(existingIndices);
     }
@@ -1612,9 +1626,9 @@ export class AffineClient {
       processedElement.seed = Math.floor(Math.random() * 2147483647);
     }
 
-    // Add element to surface
+    // Add element to surface using YMap.set()
     doc.transact(() => {
-      elementsValue[elementId] = processedElement;
+      elementsMap.set(elementId, processedElement);
     });
 
     await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
@@ -1666,19 +1680,23 @@ export class AffineClient {
 
     const surfaceBlock = surfaceBlockFound; // Type narrowing
 
-    // Get elements container
-    const elementsWrapper = surfaceBlock.get('prop:elements') as unknown;
-    if (!elementsWrapper || typeof elementsWrapper !== 'object') {
-      throw new Error('Elements property not found in surface block');
+    // Get elements container (YMap structure)
+    const elementsWrapper = surfaceBlock.get('prop:elements');
+    if (!(elementsWrapper instanceof Y.Map)) {
+      throw new Error('Elements property not found or invalid in surface block');
     }
 
-    const elementsValue = (elementsWrapper as { value?: Record<string, unknown> }).value;
-    if (!elementsValue || typeof elementsValue !== 'object') {
-      throw new Error('Elements value not found');
+    if (elementsWrapper.get('type') !== '$blocksuite:internal:native$') {
+      throw new Error('Elements property is not a native BlockSuite type');
+    }
+
+    const elementsMap = elementsWrapper.get('value');
+    if (!(elementsMap instanceof Y.Map)) {
+      throw new Error('Elements value is not a YMap');
     }
 
     // Get existing element
-    const existingElement = elementsValue[elementId];
+    const existingElement = elementsMap.get(elementId);
     if (!existingElement || typeof existingElement !== 'object') {
       throw new Error(`Element ${elementId} not found`);
     }
@@ -1694,9 +1712,9 @@ export class AffineClient {
       ...processedUpdates,
     };
 
-    // Update element
+    // Update element using YMap.set()
     doc.transact(() => {
-      elementsValue[elementId] = updatedElement;
+      elementsMap.set(elementId, updatedElement);
     });
 
     await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
@@ -1746,25 +1764,29 @@ export class AffineClient {
 
     const surfaceBlock = surfaceBlockFound; // Type narrowing
 
-    // Get elements container
-    const elementsWrapper = surfaceBlock.get('prop:elements') as unknown;
-    if (!elementsWrapper || typeof elementsWrapper !== 'object') {
-      throw new Error('Elements property not found in surface block');
+    // Get elements container (YMap structure)
+    const elementsWrapper = surfaceBlock.get('prop:elements');
+    if (!(elementsWrapper instanceof Y.Map)) {
+      throw new Error('Elements property not found or invalid in surface block');
     }
 
-    const elementsValue = (elementsWrapper as { value?: Record<string, unknown> }).value;
-    if (!elementsValue || typeof elementsValue !== 'object') {
-      throw new Error('Elements value not found');
+    if (elementsWrapper.get('type') !== '$blocksuite:internal:native$') {
+      throw new Error('Elements property is not a native BlockSuite type');
+    }
+
+    const elementsMap = elementsWrapper.get('value');
+    if (!(elementsMap instanceof Y.Map)) {
+      throw new Error('Elements value is not a YMap');
     }
 
     // Check if element exists
-    if (!elementsValue[elementId]) {
+    if (!elementsMap.has(elementId)) {
       throw new Error(`Element ${elementId} not found`);
     }
 
-    // Delete element
+    // Delete element using YMap.delete()
     doc.transact(() => {
-      delete elementsValue[elementId];
+      elementsMap.delete(elementId);
     });
 
     await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
