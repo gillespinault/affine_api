@@ -2121,19 +2121,35 @@ export class AffineClient {
 
     // DEBUG: Log raw structure
     console.log('[DEBUG getFolderTree] doc.share size:', doc.share.size);
-    const allNodes: Array<{nodeId: string, type: unknown, keys: string[]}> = [];
+    const allNodes: Array<{nodeId: string, yType: string, type: unknown, keys: string[], fullValue?: unknown}> = [];
 
     // Iterate over all keys in the root doc (each key is a nodeId)
     doc.share.forEach((value, nodeId) => {
-      // DEBUG: Log each node
+      // DEBUG: Log each node with actual type
+      const yTypeName = value.constructor.name; // Y.Map, Y.Array, Y.Text, etc.
       const isMap = value instanceof Y.Map;
+      const isArray = value instanceof Y.Array;
       const keys = isMap ? Array.from((value as Y.Map<unknown>).keys()) : [];
       const type = isMap ? (value as Y.Map<unknown>).get('type') : undefined;
 
+      // For arrays, try to extract first few items
+      let fullValue: unknown = undefined;
+      if (isArray) {
+        fullValue = (value as Y.Array<unknown>).toArray().slice(0, 3);
+      } else if (isMap) {
+        const mapObj: Record<string, unknown> = {};
+        (value as Y.Map<unknown>).forEach((v, k) => {
+          mapObj[k] = v;
+        });
+        fullValue = mapObj;
+      }
+
       allNodes.push({
         nodeId,
+        yType: yTypeName,
         type,
-        keys
+        keys,
+        fullValue
       });
 
       if (!(value instanceof Y.Map)) return;
