@@ -2106,7 +2106,6 @@ export class AffineClient {
     const foldersId = `db$${workspaceId}$folders`;
     const { doc } = await this.loadWorkspaceDoc(workspaceId, foldersId);
 
-    const folders = doc.getMap<Y.Map<unknown>>('folders');
     const tree: Array<{
       id: string;
       name: string;
@@ -2120,15 +2119,20 @@ export class AffineClient {
       { id: string; name: string; children: unknown[]; documents: string[]; parentId?: string }
     >();
 
-    folders.forEach((folderData, folderId) => {
-      if (!(folderData instanceof Y.Map)) return;
+    // Iterate over all keys in the root doc (each key is a nodeId)
+    doc.share.forEach((value, nodeId) => {
+      if (!(value instanceof Y.Map)) return;
 
-      const name = folderData.get('name');
-      const parentId = folderData.get('parentId');
+      const type = value.get('type');
+      // Only process folder nodes (not doc nodes)
+      if (type !== 'folder') return;
 
-      folderMap.set(folderId, {
-        id: folderId,
-        name: typeof name === 'string' ? name : 'Untitled',
+      const data = value.get('data');
+      const parentId = value.get('parentId');
+
+      folderMap.set(nodeId, {
+        id: nodeId,
+        name: typeof data === 'string' ? data : 'Untitled',
         children: [],
         documents: [],
         parentId: typeof parentId === 'string' ? parentId : undefined,
@@ -2194,15 +2198,15 @@ export class AffineClient {
     const foldersId = `db$${workspaceId}$folders`;
     const { doc } = await this.loadWorkspaceDoc(workspaceId, foldersId);
 
-    const folders = doc.getMap<Y.Map<unknown>>('folders');
-    const folderData = folders.get(folderId);
+    // Get the folder node directly from root
+    const folderData = doc.share.get(folderId);
 
     if (!(folderData instanceof Y.Map)) {
       throw new Error(`Folder ${folderId} not found`);
     }
 
-    const name = folderData.get('name');
-    const folderName = typeof name === 'string' ? name : 'Untitled';
+    const data = folderData.get('data');
+    const folderName = typeof data === 'string' ? data : 'Untitled';
 
     // Get all documents in workspace
     const allDocs = await this.listDocuments(workspaceId);
@@ -2210,17 +2214,20 @@ export class AffineClient {
     // Filter documents belonging to this folder
     const documents = allDocs.filter(doc => doc.folderNodeId === folderId);
 
-    // Find subfolders
+    // Find subfolders by iterating root keys
     const subfolders: Array<{ id: string; name: string }> = [];
-    folders.forEach((subfolder, subfolderId) => {
-      if (!(subfolder instanceof Y.Map)) return;
+    doc.share.forEach((value, nodeId) => {
+      if (!(value instanceof Y.Map)) return;
 
-      const parentId = subfolder.get('parentId');
+      const type = value.get('type');
+      if (type !== 'folder') return;
+
+      const parentId = value.get('parentId');
       if (parentId === folderId) {
-        const subName = subfolder.get('name');
+        const subData = value.get('data');
         subfolders.push({
-          id: subfolderId,
-          name: typeof subName === 'string' ? subName : 'Untitled',
+          id: nodeId,
+          name: typeof subData === 'string' ? subData : 'Untitled',
         });
       }
     });
