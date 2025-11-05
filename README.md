@@ -8,18 +8,26 @@ API REST complète pour gérer programmatiquement des documents et dossiers dans
 
 Ce projet fournit :
 - **Client TypeScript** (`AffineClient`) - Authentification, Socket.IO, mutations Yjs
-- **API REST Fastify** - 23 endpoints pour documents, folders, tags, blocks, et edgeless mode
+- **API REST Fastify** - 27 endpoints pour workspace navigation, documents, folders, tags, blocks, et edgeless mode
 - **Support Markdown** - Import/export avec GitHub Flavored Markdown
 - **Lecture structurée** - Extraction des blocs Yjs en JSON exploitable
 - **Opérations sur les blocs** - CRUD complet sur les blocs individuels (paragraphes, listes, etc.)
 - **Mode Edgeless / Canvas** - Manipulation programmatique de diagrammes, flowcharts, mind maps
 - **Production-ready** - Déployé sur Dokploy avec SSL Let's Encrypt + webhook auto-deploy
 
-## 📚 API Endpoints (23 total)
+## 📚 API Endpoints (27 total)
 
 ### Health Check
 ```bash
 GET /healthz
+```
+
+### Workspace Navigation (4 endpoints - NEW Phase 2)
+```bash
+GET    /workspaces                                  # List all workspaces with names
+GET    /workspaces/:id                              # Get workspace details
+GET    /workspaces/:id/folders                      # Get folder tree hierarchy
+GET    /workspaces/:workspaceId/folders/:folderId   # Get folder contents
 ```
 
 ### Documents (7 endpoints)
@@ -66,6 +74,243 @@ DELETE /workspaces/:workspaceId/tags/:tagId  # Supprimer un tag
 ```bash
 PATCH  /workspaces/:workspaceId/meta                   # Modifier workspace meta
 ```
+
+## 🗺️ Workspace Navigation API (Phase 2)
+
+La **Workspace Navigation API** permet de découvrir et naviguer dans la structure complète de vos workspaces AFFiNE.
+
+### Problème résolu
+
+L'API initiale nécessitait de connaître les workspace IDs à l'avance, sans moyen de :
+- Lister les workspaces avec leurs **noms** (l'API GraphQL AFFiNE ne retourne que les IDs)
+- Comprendre l'arborescence des dossiers
+- Identifier le workspace "Robots in Love" parmi plusieurs workspace IDs
+
+### Architecture technique
+
+**Approche hybride GraphQL + Yjs** :
+- GraphQL (`/graphql`) fournit les IDs et métadonnées de base
+- Yjs (`loadWorkspaceDoc()`) charge les noms depuis `workspace.meta.name`
+- **Requis** : `connectSocket()` + `joinWorkspace()` avant tout accès Yjs
+
+### Lister tous les workspaces avec noms
+
+```bash
+curl https://affine-api.robotsinlove.be/workspaces
+```
+
+**Réponse** :
+```json
+{
+  "workspaces": [
+    {
+      "id": "b89db6a1-b52c-4634-a5a0-24f555dbebdc",
+      "name": "Robots in Love",
+      "public": false,
+      "enableAi": true,
+      "createdAt": "2025-09-22T12:38:38.130Z"
+    },
+    {
+      "id": "65581777-b884-4a3c-af69-f286827e90b0",
+      "name": "Tests",
+      "public": false,
+      "enableAi": true,
+      "createdAt": "2025-09-22T13:06:33.440Z"
+    }
+  ]
+}
+```
+
+**Champs retournés** :
+- `id` : Workspace UUID (requis pour les autres endpoints)
+- `name` : Nom du workspace (chargé depuis Yjs meta)
+- `public` : Visibilité publique (GraphQL)
+- `enableAi` : Fonctionnalités AI activées (GraphQL)
+- `createdAt` : Date de création ISO 8601 (GraphQL)
+
+**Note importante** : Le champ `name` peut être `null` si le workspace n'a jamais été nommé dans l'UI AFFiNE.
+
+### Obtenir les détails d'un workspace
+
+```bash
+curl https://affine-api.robotsinlove.be/workspaces/b89db6a1-b52c-4634-a5a0-24f555dbebdc
+```
+
+**Réponse** :
+```json
+{
+  "id": "b89db6a1-b52c-4634-a5a0-24f555dbebdc",
+  "name": "Robots in Love",
+  "public": false,
+  "enableAi": true,
+  "createdAt": "2025-09-22T12:38:38.130Z",
+  "memberCount": 1,
+  "docCount": 37
+}
+```
+
+**Champs supplémentaires** :
+- `memberCount` : Nombre de membres (via GraphQL `workspace.members`)
+- `docCount` : Nombre de documents (via Yjs `meta.pages.length`)
+
+### Obtenir l'arborescence des dossiers
+
+```bash
+curl https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/folders
+```
+
+**Réponse** (arbre récursif) :
+```json
+{
+  "workspaceId": "b89db6a1-b52c-4634-a5a0-24f555dbebdc",
+  "folders": [
+    {
+      "id": "folder-123",
+      "name": "📁 Projects",
+      "children": [
+        {
+          "id": "folder-456",
+          "name": "🚀 Active",
+          "children": [],
+          "documents": ["doc-abc", "doc-def"]
+        }
+      ],
+      "documents": ["doc-xyz"]
+    },
+    {
+      "id": "folder-789",
+      "name": "📚 Documentation",
+      "children": [],
+      "documents": ["doc-guide-1", "doc-guide-2"]
+    }
+  ]
+}
+```
+
+**Structure de l'arbre** :
+- Seuls les dossiers **racine** (sans `parentId`) apparaissent au niveau supérieur
+- Les sous-dossiers sont imbriqués dans `children`
+- Les documents dans chaque dossier sont listés dans `documents` (IDs uniquement)
+
+**Note technique** : L'arborescence est construite depuis le document Yjs `db${workspaceId}$folders` qui contient un YMap de tous les dossiers avec leurs relations `parentId`.
+
+**⚠️ Limitation actuelle** : Certains workspaces peuvent retourner `folders: []` si :
+- Le workspace n'utilise pas de dossiers
+- La structure folders n'a pas été initialisée dans AFFiNE
+- La version d'AFFiNE utilisée structure les dossiers différemment
+
+### Obtenir le contenu d'un dossier spécifique
+
+```bash
+curl https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/folders/folder-123
+```
+
+**Réponse** :
+```json
+{
+  "folderId": "folder-123",
+  "name": "📁 Projects",
+  "documents": [
+    {
+      "docId": "doc-abc",
+      "title": "Project Alpha",
+      "createDate": 1730000000000,
+      "updatedDate": 1730010000000,
+      "tags": ["project", "active"],
+      "folderId": "69ux-EElzNi0t1l1qscJC",
+      "folderNodeId": "folder-123"
+    },
+    {
+      "docId": "doc-def",
+      "title": "Project Beta",
+      "createDate": 1730020000000,
+      "updatedDate": 1730030000000,
+      "tags": [],
+      "folderId": "69ux-EElzNi0t1l1qscJC",
+      "folderNodeId": "folder-123"
+    }
+  ],
+  "subfolders": [
+    {
+      "id": "folder-456",
+      "name": "🚀 Active"
+    },
+    {
+      "id": "folder-457",
+      "name": "📦 Archived"
+    }
+  ]
+}
+```
+
+**Champs retournés** :
+- `folderId` : ID du dossier demandé
+- `name` : Nom du dossier
+- `documents` : Array de **documents complets** avec métadonnées (pas juste des IDs)
+- `subfolders` : Sous-dossiers directs (1 niveau uniquement)
+
+**Code erreur 404** : Si le folder n'existe pas dans le YMap folders
+
+### Workflow recommandé pour la navigation
+
+**Scénario 1 - Découvrir les workspaces** :
+```bash
+# 1. Lister tous les workspaces
+curl https://affine-api.robotsinlove.be/workspaces
+
+# 2. Identifier le workspace souhaité par son nom
+# → Workspace "Robots in Love" a l'ID b89db6a1-b52c-4634-a5a0-24f555dbebdc
+
+# 3. Obtenir ses détails
+curl https://affine-api.robotsinlove.be/workspaces/b89db6a1-b52c-4634-a5a0-24f555dbebdc
+```
+
+**Scénario 2 - Explorer la hiérarchie** :
+```bash
+# 1. Obtenir l'arbre complet de dossiers
+curl https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/folders
+
+# 2. Identifier un dossier intéressant (ex: "Projects" → folder-123)
+
+# 3. Récupérer ses documents et sous-dossiers
+curl https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/folders/folder-123
+```
+
+**Scénario 3 - Créer un document dans le bon workspace** :
+```bash
+# 1. Lister les workspaces pour trouver le bon ID
+WORKSPACE_ID=$(curl -s https://affine-api.robotsinlove.be/workspaces \
+  | jq -r '.workspaces[] | select(.name == "Robots in Love") | .id')
+
+# 2. Créer le document
+curl -X POST https://affine-api.robotsinlove.be/workspaces/$WORKSPACE_ID/documents \
+  -H "Content-Type: application/json" \
+  -d '{"title": "My new document", "markdown": "# Hello"}'
+```
+
+### Limitations et notes techniques
+
+**GraphQL vs Yjs** :
+- **Workspace names** : Uniquement dans Yjs `meta.name` (pas exposé par GraphQL)
+- **Doc count** : Calculé depuis Yjs `meta.pages.length` (GraphQL n'a pas ce champ)
+- **Folder structure** : Entièrement dans Yjs `db${workspaceId}$folders` (pas dans GraphQL)
+
+**Socket.IO workflow requis** :
+```typescript
+await client.signIn(email, password);     // 1. Authentification
+await client.connectSocket();             // 2. WebSocket connection
+await client.joinWorkspace(workspaceId);  // 3. REQUIS avant loadWorkspaceDoc()
+await client.loadWorkspaceDoc(...);       // 4. Accès aux données Yjs
+```
+
+**Performance** :
+- `GET /workspaces` charge les métadonnées de TOUS les workspaces en parallèle (`Promise.all`)
+- Temps de réponse typique : ~500-1000ms pour 3 workspaces
+
+**Roadmap** :
+- [ ] Support pagination pour workspaces nombreux
+- [ ] Cache des workspace names (éviter rechargement à chaque requête)
+- [ ] Endpoint pour créer/renommer des dossiers via l'API
 
 ## 🚀 Démarrage rapide
 
@@ -921,7 +1166,7 @@ MIT
 
 ---
 
-**Version** : 0.1.0
-**Dernière mise à jour** : 2025-11-03
+**Version** : 0.2.0 (Phase 2 - Workspace Navigation API)
+**Dernière mise à jour** : 2025-11-05
 **Statut** : ✅ Production
 **Mainteneur** : Gilles Pinault (@gillespinault)
