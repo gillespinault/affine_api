@@ -2132,16 +2132,22 @@ export class AffineClient {
       const keys = isMap ? Array.from((value as Y.Map<unknown>).keys()) : [];
       const type = isMap ? (value as Y.Map<unknown>).get('type') : undefined;
 
-      // For arrays, try to extract first few items
+      // Try toJSON() method if available
       let fullValue: unknown = undefined;
-      if (isArray) {
-        fullValue = (value as Y.Array<unknown>).toArray().slice(0, 3);
-      } else if (isMap) {
-        const mapObj: Record<string, unknown> = {};
-        (value as Y.Map<unknown>).forEach((v, k) => {
-          mapObj[k] = v;
-        });
-        fullValue = mapObj;
+      try {
+        if (typeof (value as any).toJSON === 'function') {
+          fullValue = (value as any).toJSON();
+        } else if (isArray) {
+          fullValue = (value as Y.Array<unknown>).toArray().slice(0, 3);
+        } else if (isMap) {
+          const mapObj: Record<string, unknown> = {};
+          (value as Y.Map<unknown>).forEach((v, k) => {
+            mapObj[k] = v;
+          });
+          fullValue = mapObj;
+        }
+      } catch (e) {
+        fullValue = `Error: ${e}`;
       }
 
       allNodes.push({
