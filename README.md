@@ -17,18 +17,19 @@ Ce projet fournit :
 - **Intégrations MCP** – Compatibilité avec `affine-mcp-server` (analyse détaillée dans `docs/reference/affine-mcp-analysis.md`)
 - **Production-ready** – Déployé sur Dokploy avec SSL Let's Encrypt + webhook auto-deploy
 
-## 📚 API Endpoints (27 total)
+## 📚 API Endpoints (28 total)
 
 ### Health Check
 ```bash
 GET /healthz
 ```
 
-### Workspace Navigation (4 endpoints - NEW Phase 2)
+### Workspace Navigation (5 endpoints - NEW Phase 2)
 ```bash
 GET    /workspaces                                  # List all workspaces with names
 GET    /workspaces/:id                              # Get workspace details
-GET    /workspaces/:id/folders                      # Get folder tree hierarchy
+GET    /workspaces/:id/folders                      # Get folder tree hierarchy (legacy, excludes subdocs)
+GET    /workspaces/:id/hierarchy                    # Get complete hierarchy (folders + docs + subdocs) ✅
 GET    /workspaces/:workspaceId/folders/:folderId   # Get folder contents
 ```
 
@@ -155,13 +156,87 @@ curl https://affine-api.robotsinlove.be/workspaces/b89db6a1-b52c-4634-a5a0-24f55
 - `memberCount` : Nombre de membres (via GraphQL `workspace.members`)
 - `docCount` : Nombre de documents (via Yjs `meta.pages.length`)
 
-### Obtenir l'arborescence des dossiers
+### Obtenir l'arborescence complète (folders + docs + subdocs) ✨ RECOMMANDÉ
+
+```bash
+curl https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/hierarchy
+```
+
+**Réponse** (arbre récursif avec subdocuments) :
+```json
+{
+  "workspaceId": "b89db6a1-b52c-4634-a5a0-24f555dbebdc",
+  "hierarchy": [
+    {
+      "type": "folder",
+      "id": "folder-123",
+      "name": "📁 Projects",
+      "children": [
+        {
+          "type": "doc",
+          "id": "doc-node-456",
+          "name": "Project Alpha",
+          "docId": "doc-abc",
+          "children": [
+            {
+              "type": "doc",
+              "id": "linked-subdoc-1",
+              "name": "Architecture Overview",
+              "docId": "subdoc-xyz",
+              "children": []
+            },
+            {
+              "type": "doc",
+              "id": "linked-subdoc-2",
+              "name": "API Specs",
+              "docId": "subdoc-def",
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Caractéristiques** :
+- ✅ **Arborescence complète** : Inclut folders, documents ET subdocuments
+- ✅ **Linked docs** : Les documents liés via `@mention` apparaissent comme enfants
+- ✅ **Structure récursive** : Supporte plusieurs niveaux d'imbrication
+- ✅ **Types explicites** : Chaque nœud a un `type` ('folder' ou 'doc')
+- ✅ **IDs de documents** : `docId` fourni pour tous les documents
+
+**Architecture AFFiNE révélée** 🔍 :
+
+Les "subdocs" dans AFFiNE ne sont **PAS** stockés dans `db$workspace$folders`. Ce sont des **LinkedPage references** intégrées dans le contenu du document parent :
+
+```typescript
+// Dans les blocs Yjs du document parent
+{
+  insert: " ",
+  attributes: {
+    reference: {
+      type: "LinkedPage",
+      pageId: "child-doc-id"
+    }
+  }
+}
+```
+
+L'API parse automatiquement ces références pour construire l'arborescence complète.
+
+**⚠️ Note importante** : Cette méthode charge le contenu de chaque document pour extraire les linked docs. Pour les workspaces avec beaucoup de documents, cela peut prendre quelques secondes.
+
+### Obtenir l'arborescence des dossiers uniquement (legacy)
 
 ```bash
 curl https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/folders
 ```
 
-**Réponse** (arbre récursif) :
+**⚠️ Limitation** : N'inclut PAS les subdocs (linked docs). Utilisez `/hierarchy` pour l'arborescence complète.
+
+**Réponse** (arbre récursif, documents = IDs uniquement) :
 ```json
 {
   "workspaceId": "b89db6a1-b52c-4634-a5a0-24f555dbebdc",
@@ -178,12 +253,6 @@ curl https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/folders
         }
       ],
       "documents": ["doc-xyz"]
-    },
-    {
-      "id": "folder-789",
-      "name": "📚 Documentation",
-      "children": [],
-      "documents": ["doc-guide-1", "doc-guide-2"]
     }
   ]
 }
@@ -192,14 +261,9 @@ curl https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/folders
 **Structure de l'arbre** :
 - Seuls les dossiers **racine** (sans `parentId`) apparaissent au niveau supérieur
 - Les sous-dossiers sont imbriqués dans `children`
-- Les documents dans chaque dossier sont listés dans `documents` (IDs uniquement)
+- Les documents dans chaque dossier sont listés dans `documents` (IDs uniquement, pas de métadonnées)
 
 **Note technique** : L'arborescence est construite depuis le document Yjs `db${workspaceId}$folders` qui contient un YMap de tous les dossiers avec leurs relations `parentId`.
-
-**⚠️ Limitation actuelle** : Certains workspaces peuvent retourner `folders: []` si :
-- Le workspace n'utilise pas de dossiers
-- La structure folders n'a pas été initialisée dans AFFiNE
-- La version d'AFFiNE utilisée structure les dossiers différemment
 
 ### Obtenir le contenu d'un dossier spécifique
 
@@ -1043,6 +1107,76 @@ affine-api container (port 3000)
 ```
 https://dokploy.robotsinlove.be/api/deploy/kDjCutKV2keMoxHUGvEqg
 ```
+
+## 🏗️ Architecture AFFiNE
+
+### Organisation hybride des documents
+
+AFFiNE utilise une architecture hybride pour organiser les documents :
+
+#### 1. Structure explicite (Folders)
+
+Stockée dans `db$workspaceId$folders` (document Yjs) :
+- **Folders** : Dossiers avec `type: 'folder'`
+- **Docs organisés** : Documents placés dans des dossiers avec `folderId` et `folderNodeId`
+- **Autres types** : Tags (`type: 'tag'`), Collections (`type: 'collection'`)
+
+Cette structure est retournée par l'endpoint `/folders` (legacy).
+
+#### 2. Liens dynamiques (LinkedPage)
+
+Les "subdocs" (documents enfants d'un autre document) ne sont **pas stockés dans la structure folders**. Ils sont représentés comme des **références dans le contenu du document parent**.
+
+**Mécanisme technique** :
+- Chaque document contient une YMap `blocks` avec tous ses blocs de contenu
+- Les blocs de type paragraphe ont une propriété `prop:text` (Y.Text)
+- Le Y.Text contient des **Delta operations** avec des attributs riches
+- Les liens vers d'autres documents utilisent l'attribut `reference` :
+
+```typescript
+{
+  insert: "Running Shoes",
+  attributes: {
+    reference: {
+      type: 'LinkedPage',
+      pageId: 'ZBcRJwoMfg91W96LwzdWT'
+    }
+  }
+}
+```
+
+**Détection des subdocs** (méthode `getLinkedDocs()`) :
+1. Charger le document parent via `loadWorkspaceDoc(workspaceId, docId)`
+2. Récupérer la YMap `blocks`
+3. Pour chaque bloc, extraire `prop:text` (Y.Text)
+4. Parser les Delta operations avec `toDelta()`
+5. Filtrer les operations ayant `attributes.reference.type === 'LinkedPage'`
+6. Extraire les `pageId` de chaque référence
+
+**Exemple réel** (workspace "Robots in Love") :
+```
+Shenzhen Round 2 (folder)
+└── Shopping (doc)
+    ├── Running Shoes (subdoc via LinkedPage)
+    ├── Quartier pour running Shoes (subdoc via LinkedPage)
+    └── Earbuds (subdoc via LinkedPage)
+```
+
+Le document "Shopping" contient 3 blocs avec des références LinkedPage vers les subdocs.
+
+#### 3. Endpoint `/hierarchy` (recommandé)
+
+Combine les deux mécanismes :
+- Charge la structure explicite depuis `/folders`
+- Pour chaque document trouvé, extrait les LinkedPage via `getLinkedDocs()`
+- Ajoute les subdocs comme enfants avec `id: linked-${docId}`
+- Retourne l'arborescence **complète** (folders + docs + subdocs)
+
+**Avantage** : Reflète exactement ce que l'utilisateur voit dans l'interface AFFiNE.
+
+**Code implémentation** : `src/client/runtime/affine-client.ts`
+- Ligne 2188 : `getLinkedDocs()` - Extraction des LinkedPage
+- Ligne 2234 : `getHierarchy()` - Construction de la hiérarchie complète
 
 ## 🔐 Sécurité
 
