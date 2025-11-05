@@ -333,6 +333,108 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     },
   );
 
+  // ============================================================================
+  // Workspace Navigation Endpoints
+  // ============================================================================
+
+  /**
+   * GET /workspaces
+   * List all accessible workspaces with names and metadata
+   */
+  app.get('/workspaces', async (request, reply) => {
+    const client = createClient(config);
+    try {
+      // Sign in with default credentials (assumes shared access)
+      const { email, password } = await credentialProvider.getCredentials('default');
+      await client.signIn(email, password);
+
+      const workspaces = await client.listWorkspaces();
+      reply.send({ workspaces });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  /**
+   * GET /workspaces/:id
+   * Get detailed information about a specific workspace
+   */
+  app.get('/workspaces/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const client = createClient(config);
+
+    try {
+      const { email, password } = await credentialProvider.getCredentials(id);
+      await client.signIn(email, password);
+
+      const workspace = await client.getWorkspaceDetails(id);
+      reply.send(workspace);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  /**
+   * GET /workspaces/:id/folders
+   * Get complete folder tree hierarchy for a workspace
+   */
+  app.get('/workspaces/:id/folders', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const client = createClient(config);
+
+    try {
+      const { email, password } = await credentialProvider.getCredentials(id);
+      await client.signIn(email, password);
+      await client.connectSocket();
+      await client.joinWorkspace(id);
+
+      const tree = await client.getFolderTree(id);
+      reply.send({ workspaceId: id, folders: tree });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  /**
+   * GET /workspaces/:workspaceId/folders/:folderId
+   * Get contents of a specific folder
+   */
+  app.get('/workspaces/:workspaceId/folders/:folderId', async (request, reply) => {
+    const { workspaceId, folderId } = request.params as {
+      workspaceId: string;
+      folderId: string;
+    };
+    const client = createClient(config);
+
+    try {
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+      await client.signIn(email, password);
+      await client.connectSocket();
+      await client.joinWorkspace(workspaceId);
+
+      const contents = await client.getFolderContents(workspaceId, folderId);
+      reply.send(contents);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('not found')) {
+        reply.code(404).send({ error: message });
+      } else {
+        reply.code(500).send({ error: message });
+      }
+    } finally {
+      await client.disconnect();
+    }
+  });
+
   app.patch('/workspaces/:workspaceId/meta', async (request, reply) => {
     const { workspaceId } = request.params as { workspaceId: string };
     const body = (request.body ?? {}) as {

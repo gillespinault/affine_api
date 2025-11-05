@@ -1874,4 +1874,341 @@ export class AffineClient {
 
     return `${letters}${num + 1}`;
   }
+
+  // ============================================================================
+  // Workspace Navigation API
+  // ============================================================================
+
+  /**
+   * Helper: Execute GraphQL query against AFFiNE API.
+   */
+  private async graphqlQuery<T = unknown>(
+    query: string,
+    variables?: Record<string, unknown>,
+  ): Promise<T> {
+    if (!this.cookieJar.size) {
+      throw new Error('Must sign in before making GraphQL requests');
+    }
+
+    const response = await this.fetchFn(new URL('/graphql', this.baseUrl).toString(), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json',
+        cookie: this.getCookieHeader(),
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+
+    if (!response.ok) {
+      let text = '<unreadable>';
+      try {
+        text = await response.text();
+      } catch {
+        // ignore
+      }
+      throw new Error(
+        `GraphQL request failed (${response.status} ${response.statusText}): ${text}`,
+      );
+    }
+
+    const json = JSON.parse(await response.text()) as {
+      data?: T;
+      errors?: Array<{ message: string }>;
+    };
+
+    if (json.errors && json.errors.length > 0) {
+      throw new Error(`GraphQL errors: ${json.errors.map(e => e.message).join(', ')}`);
+    }
+
+    if (!json.data) {
+      throw new Error('GraphQL response missing data field');
+    }
+
+    return json.data;
+  }
+
+  /**
+   * List all accessible workspaces with names and metadata.
+   *
+   * Returns workspaces with:
+   * - id: Workspace ID
+   * - name: Workspace name (from Yjs meta)
+   * - public: Public workspace flag
+   * - enableAi: AI features enabled
+   * - createdAt: Creation timestamp
+   */
+  async listWorkspaces(): Promise<
+    Array<{
+      id: string;
+      name: string | null;
+      public: boolean;
+      enableAi: boolean;
+      createdAt: string;
+    }>
+  > {
+    const query = `
+      query {
+        workspaces {
+          id
+          public
+          enableAi
+          createdAt
+        }
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      workspaces: Array<{
+        id: string;
+        public: boolean;
+        enableAi: boolean;
+        createdAt: string;
+      }>;
+    }>(query);
+
+    // Fetch workspace names from Yjs meta for each workspace
+    const workspacesWithNames = await Promise.all(
+      result.workspaces.map(async ws => {
+        let name: string | null = null;
+        try {
+          const { doc } = await this.loadWorkspaceDoc(ws.id, ws.id);
+          const meta = doc.getMap<unknown>('meta');
+          const nameValue = meta.get('name');
+          if (typeof nameValue === 'string') {
+            name = nameValue;
+          }
+        } catch (error) {
+          // If we can't load workspace meta, name stays null
+          console.warn(`Failed to load workspace meta for ${ws.id}:`, error);
+        }
+
+        return {
+          ...ws,
+          name,
+        };
+      }),
+    );
+
+    return workspacesWithNames;
+  }
+
+  /**
+   * Get detailed information about a specific workspace.
+   *
+   * Returns:
+   * - id: Workspace ID
+   * - name: Workspace name (from Yjs meta)
+   * - public: Public workspace flag
+   * - enableAi: AI features enabled
+   * - createdAt: Creation timestamp
+   * - memberCount: Number of members
+   * - docCount: Number of documents (estimate from pages array)
+   */
+  async getWorkspaceDetails(workspaceId: string): Promise<{
+    id: string;
+    name: string | null;
+    public: boolean;
+    enableAi: boolean;
+    createdAt: string;
+    memberCount: number;
+    docCount: number;
+  }> {
+    const query = `
+      query($workspaceId: String!) {
+        workspace(id: $workspaceId) {
+          id
+          public
+          enableAi
+          createdAt
+          members {
+            id
+          }
+        }
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      workspace: {
+        id: string;
+        public: boolean;
+        enableAi: boolean;
+        createdAt: string;
+        members: Array<{ id: string }>;
+      };
+    }>(query, { workspaceId });
+
+    // Load workspace meta for name and doc count
+    const { doc } = await this.loadWorkspaceDoc(workspaceId, workspaceId);
+    const meta = doc.getMap<unknown>('meta');
+
+    let name: string | null = null;
+    const nameValue = meta.get('name');
+    if (typeof nameValue === 'string') {
+      name = nameValue;
+    }
+
+    let docCount = 0;
+    const pages = meta.get('pages');
+    if (pages instanceof Y.Array) {
+      docCount = pages.length;
+    }
+
+    return {
+      id: result.workspace.id,
+      name,
+      public: result.workspace.public,
+      enableAi: result.workspace.enableAi,
+      createdAt: result.workspace.createdAt,
+      memberCount: result.workspace.members.length,
+      docCount,
+    };
+  }
+
+  /**
+   * Get the complete folder tree hierarchy for a workspace.
+   *
+   * Returns nested folder structure with:
+   * - id: Folder ID
+   * - name: Folder name
+   * - children: Array of child folders (recursive)
+   * - documents: Array of document IDs in this folder
+   */
+  async getFolderTree(workspaceId: string): Promise<
+    Array<{
+      id: string;
+      name: string;
+      children: Array<unknown>; // Recursive type
+      documents: string[];
+    }>
+  > {
+    const foldersId = `db$${workspaceId}$folders`;
+    const { doc } = await this.loadWorkspaceDoc(workspaceId, foldersId);
+
+    const folders = doc.getMap<Y.Map<unknown>>('folders');
+    const tree: Array<{
+      id: string;
+      name: string;
+      children: Array<unknown>;
+      documents: string[];
+    }> = [];
+
+    // Build folder map
+    const folderMap = new Map<
+      string,
+      { id: string; name: string; children: unknown[]; documents: string[]; parentId?: string }
+    >();
+
+    folders.forEach((folderData, folderId) => {
+      if (!(folderData instanceof Y.Map)) return;
+
+      const name = folderData.get('name');
+      const parentId = folderData.get('parentId');
+
+      folderMap.set(folderId, {
+        id: folderId,
+        name: typeof name === 'string' ? name : 'Untitled',
+        children: [],
+        documents: [],
+        parentId: typeof parentId === 'string' ? parentId : undefined,
+      });
+    });
+
+    // Load document list to assign documents to folders
+    const summaries = await this.listDocuments(workspaceId);
+    for (const doc of summaries) {
+      if (doc.folderNodeId) {
+        const folder = folderMap.get(doc.folderNodeId);
+        if (folder) {
+          folder.documents.push(doc.docId);
+        }
+      }
+    }
+
+    // Build tree structure
+    folderMap.forEach(folder => {
+      if (!folder.parentId) {
+        // Root folder
+        tree.push({
+          id: folder.id,
+          name: folder.name,
+          children: folder.children,
+          documents: folder.documents,
+        });
+      } else {
+        // Child folder - add to parent
+        const parent = folderMap.get(folder.parentId);
+        if (parent) {
+          parent.children.push({
+            id: folder.id,
+            name: folder.name,
+            children: folder.children,
+            documents: folder.documents,
+          });
+        }
+      }
+    });
+
+    return tree;
+  }
+
+  /**
+   * Get contents of a specific folder.
+   *
+   * Returns:
+   * - folderId: Folder ID
+   * - name: Folder name
+   * - documents: Array of DocumentSummary objects in this folder
+   * - subfolders: Array of child folder IDs with names
+   */
+  async getFolderContents(
+    workspaceId: string,
+    folderId: string,
+  ): Promise<{
+    folderId: string;
+    name: string;
+    documents: DocumentSummary[];
+    subfolders: Array<{ id: string; name: string }>;
+  }> {
+    const foldersId = `db$${workspaceId}$folders`;
+    const { doc } = await this.loadWorkspaceDoc(workspaceId, foldersId);
+
+    const folders = doc.getMap<Y.Map<unknown>>('folders');
+    const folderData = folders.get(folderId);
+
+    if (!(folderData instanceof Y.Map)) {
+      throw new Error(`Folder ${folderId} not found`);
+    }
+
+    const name = folderData.get('name');
+    const folderName = typeof name === 'string' ? name : 'Untitled';
+
+    // Get all documents in workspace
+    const allDocs = await this.listDocuments(workspaceId);
+
+    // Filter documents belonging to this folder
+    const documents = allDocs.filter(doc => doc.folderNodeId === folderId);
+
+    // Find subfolders
+    const subfolders: Array<{ id: string; name: string }> = [];
+    folders.forEach((subfolder, subfolderId) => {
+      if (!(subfolder instanceof Y.Map)) return;
+
+      const parentId = subfolder.get('parentId');
+      if (parentId === folderId) {
+        const subName = subfolder.get('name');
+        subfolders.push({
+          id: subfolderId,
+          name: typeof subName === 'string' ? subName : 'Untitled',
+        });
+      }
+    });
+
+    return {
+      folderId,
+      name: folderName,
+      documents,
+      subfolders,
+    };
+  }
 }
