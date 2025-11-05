@@ -60,13 +60,13 @@ export function createDocYStructure({
   surfaceMap.set('sys:parent', pageId);
   surfaceMap.set('sys:children', surfaceChildren);
 
-  // Initialize elements with Y.Map value for proper CRDT synchronization
-  // The wrapper must be plain object for AFFiNE UI compatibility
-  // But the value must be Y.Map for elements to persist
-  surfaceMap.set('prop:elements', {
-    type: '$blocksuite:internal:native$',
-    value: new Y.Map<unknown>(),
-  });
+  // Initialize elements structure with nested Y.Maps for proper CRDT synchronization
+  // CRITICAL: Both wrapper AND value must be Y.Map for Yjs to serialize correctly
+  // Plain object wrapper breaks the CRDT chain and causes "value" to serialize as empty {}
+  const elementsWrapper = new Y.Map<unknown>();
+  elementsWrapper.set('type', '$blocksuite:internal:native$');
+  elementsWrapper.set('value', new Y.Map<unknown>());
+  surfaceMap.set('prop:elements', elementsWrapper);
 
   blocks.set(surfaceId, surfaceMap);
 
