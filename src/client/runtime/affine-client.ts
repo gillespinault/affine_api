@@ -1791,7 +1791,12 @@ export class AffineClient {
     elementData: Record<string, unknown>,
   ): void {
     if (elementsMap instanceof Y.Map) {
-      elementsMap.set(elementId, elementData);
+      // Store element as Y.Map for proper CRDT synchronization
+      const elementMap = new Y.Map<unknown>();
+      Object.entries(elementData).forEach(([key, value]) => {
+        elementMap.set(key, value);
+      });
+      elementsMap.set(elementId, elementMap);
     } else {
       elementsMap[elementId] = elementData;
     }

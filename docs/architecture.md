@@ -7,7 +7,7 @@ Fournir un SDK et des services backend capables de piloter AFFiNE (Socket.IO + Y
 ## Composants actuels
 
 - **Client TypeScript (`src/client/`)** : encapsule l'authentification (REST `/api/auth/sign-in`), l'ouverture de WebSocket, l'émission des événements `space:*` et la manipulation de documents Yjs.
-  - `AffineClient` : API haut niveau (`signIn`, `createDocument`, `createFolder`, `registerDocInFolder`...).
+  - `AffineClient` : API haut niveau (`signIn`, `createDocument`, `createFolder`, `registerDocInFolder`...). Refactor conservateur en cours pour factoriser les helpers (`wsUrlFromGraphQLEndpoint`, `pushDocUpdate`) inspirés du serveur MCP.
   - Utilitaires exportés : `createDocYStructure`, `encodeUpdateToBase64`, `parseSetCookies`, `randomLexoRank`, etc.
 - **Scripts historiques (`scripts/`)** : CLI Node (CommonJS) utilisés comme POC. Ils s'appuient encore sur `lib/affineClient.js` (legacy). Une migration vers le build TypeScript est prévue.
 - **Service HTTP (`src/service/`)** : skeleton Fastify + CLI TypeScript (`src/service/cli/create-doc.ts`) reposant sur `AffineClient`.
@@ -29,6 +29,15 @@ Fournir un SDK et des services backend capables de piloter AFFiNE (Socket.IO + Y
 3. **Observabilité**
    - Metrics (Prometheus/OpenTelemetry) : latence `space:*`, taux d'erreur, volumétrie d'updates Yjs.
    - Journaux structurés (pino) et traçabilité des opérations (docId, workspaceId, acteur).
+
+## Interop MCP & refactoring conservateur
+
+- **Analyse** : `docs/reference/affine-mcp-analysis.md` recense la surface du serveur `affine-mcp-server` (workspace/doc/commentaires, operations Yjs bas-niveau) et sert de référence pour notre roadmap.
+- **Objectifs refactor** :
+  - aligner `AffineClient` sur les helpers MCP pour réduire la divergence protocolaire (join/push/load).
+  - mutualiser la conversion Yjs → JSON entre API REST et future couche MCP interne.
+  - conserver la compatibilité des endpoints existants (tests smoke sur `scripts/run-affine-api-test.ts`).
+- **Priorité** : adopter une approche incrémentale (feature flags si nécessaire) afin de ne pas casser les intégrations existantes.
 
 ## Points techniques clés
 
@@ -58,5 +67,6 @@ Fournir un SDK et des services backend capables de piloter AFFiNE (Socket.IO + Y
 
 1. Définir l'interface REST/GraphQL du service (`docs/roadmap.md`).
 2. Implémenter la couche service et une CLI modernisée (`tsx` + `dist/cli`).
-3. Ajouter tests d'intégration contre un workspace de staging (mock socket ou playground real).
-4. Préparer un module Python (en option) pour appels AFFiNE depuis notebooks IA.
+3. Refactor conservateur : factoriser les helpers Socket.IO/Yjs et aligner les mises à jour doc/folders avec le code MCP.
+4. Ajouter tests d'intégration contre un workspace de staging (mock socket ou playground real).
+5. Préparer un module Python (en option) pour appels AFFiNE depuis notebooks IA.

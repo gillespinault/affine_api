@@ -15,14 +15,18 @@
 - [ ] Ajouter middleware AuthN/AuthZ (token AFFiNE + API key interne) + rate limiting/logs.
 - [ ] Intégration n8n : action "Create AFFiNE doc" + variantes (update, delete).
 - [ ] Packaging Docker + Helm chart.
+- [ ] Refactor conservateur `AffineClient` (alignement helpers MCP, tests smoke).
 
-## Phase 3 – Production readiness (Semaine 48+)
+## Phase 3 – Production readiness & Collaboration (Semaine 48+)
 - [ ] Tests d'intégration sur workspace staging (workflow GitHub Action nightly) couvrant création, mise à jour, suppression.
 - [ ] Tests E2E markdown → AFFiNE (import complet, contenus riches : listes, tableaux, code).
 - [ ] Monitoring (Prometheus metrics + alertes) et traçabilité (OpenTelemetry).
 - [ ] Documentation utilisateur (guides, snippets Python/JS) incluant pipeline Markdown.
 - [ ] Processus de release semver (Changesets ou semantic-release).
 - [ ] Préparation open-source (audit dependencies, licence, contribution guidelines).
+- [ ] **Endpoints collaboration** : commentaires (CRUD), version history (list/recover), tokens API, notifications.
+- [ ] **Blob storage** : upload/suppression/cleanup (parité MCP `blobStorage`).
+- [ ] Publication spec OpenAPI + comparaison MCP (doc).
 
 ## Préparation GitHub
 - [ ] Créer dépôt `serverlab/affine-api`, importer l'historique.

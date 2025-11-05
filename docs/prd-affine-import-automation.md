@@ -173,4 +173,4 @@ Conséquence : migrations et alimentations de contenu sont manuelles, lentes, et
 - `projects/notebooks_api/docs/architecture.md` – vision du SDK et service.
 - `projects/notebooks_api/docs/api-test-guide.md` – smoke test existant (à étendre).
 - `projects/notebooks_api/EDGELESS_DESIGN.md` – référence pour futures extensions (non couvert ici).
-
+- `projects/notebooks_api/docs/reference/affine-mcp-analysis.md` – le MCP ne couvre aucun import multi-format aujourd’hui.

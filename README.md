@@ -7,13 +7,14 @@ API REST complète pour gérer programmatiquement des documents et dossiers dans
 ## 🎯 Vue d'ensemble
 
 Ce projet fournit :
-- **Client TypeScript** (`AffineClient`) - Authentification, Socket.IO, mutations Yjs
-- **API REST Fastify** - 27 endpoints pour workspace navigation, documents, folders, tags, blocks, et edgeless mode
-- **Support Markdown** - Import/export avec GitHub Flavored Markdown
-- **Lecture structurée** - Extraction des blocs Yjs en JSON exploitable
-- **Opérations sur les blocs** - CRUD complet sur les blocs individuels (paragraphes, listes, etc.)
-- **Mode Edgeless / Canvas** - Manipulation programmatique de diagrammes, flowcharts, mind maps
-- **Production-ready** - Déployé sur Dokploy avec SSL Let's Encrypt + webhook auto-deploy
+- **Client TypeScript** (`AffineClient`) – Authentification, Socket.IO, mutations Yjs (refactor en cours pour factoriser les helpers hérités du MCP)
+- **API REST Fastify** – 27 endpoints pour workspace navigation, documents, folders, tags, blocks, et edgeless mode
+- **Support Markdown** – Import/export avec GitHub Flavored Markdown
+- **Lecture structurée** – Extraction des blocs Yjs en JSON exploitable
+- **Opérations sur les blocs** – CRUD complet sur les blocs individuels (paragraphes, listes, etc.)
+- **Mode Edgeless / Canvas** – Manipulation programmatique de diagrammes, flowcharts, mind maps
+- **Intégrations MCP** – Compatibilité avec `affine-mcp-server` (analyse détaillée dans `docs/reference/affine-mcp-analysis.md`)
+- **Production-ready** – Déployé sur Dokploy avec SSL Let's Encrypt + webhook auto-deploy
 
 ## 📚 API Endpoints (27 total)
 
@@ -48,7 +49,7 @@ PATCH  /workspaces/:workspaceId/documents/:docId/blocks/:blockId  # Modifier un 
 DELETE /workspaces/:workspaceId/documents/:docId/blocks/:blockId  # Supprimer un bloc
 ```
 
-### Edgeless Mode (5 endpoints - NEW Priority #3)
+### Edgeless Mode (5 endpoints - Priority #3 en cours de refactor)
 ```bash
 GET    /workspaces/:workspaceId/documents/:docId/edgeless                      # Lister éléments canvas
 POST   /workspaces/:workspaceId/documents/:docId/edgeless/elements             # Créer élément
@@ -1170,3 +1171,6 @@ MIT
 **Dernière mise à jour** : 2025-11-05
 **Statut** : ✅ Production
 **Mainteneur** : Gilles Pinault (@gillespinault)
+- **Collaboration** (planning) : commentaires, historique, tokens API, notifications (voir roadmap)
+- **Blob storage** (planning) : upload/suppression fichiers, aligné avec MCP `blobStorage`
+- **Interop MCP** : le serveur `affine-mcp-server` couvre workspace/doc/commentaires (voir `docs/reference/affine-mcp-analysis.md`). Notre API ajoute Edgeless, import multi-format, databases.
