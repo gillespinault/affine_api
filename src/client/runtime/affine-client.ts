@@ -1510,24 +1510,17 @@ export class AffineClient {
 
     const surfaceBlock = surfaceBlockFound; // Type narrowing
 
-    // Extract elements (YMap structure)
-    const elementsWrapper = surfaceBlock.get('prop:elements');
-    if (!(elementsWrapper instanceof Y.Map)) {
-      return [];
-    }
-
-    if (elementsWrapper.get('type') !== '$blocksuite:internal:native$') {
-      return [];
-    }
-
-    const elementsMap = elementsWrapper.get('value');
-    if (!(elementsMap instanceof Y.Map)) {
-      return [];
+    // Extract elements using helper
+    let elementsMap: Y.Map<unknown> | Record<string, unknown>;
+    try {
+      elementsMap = this.getElementsMap(surfaceBlock);
+    } catch (error) {
+      return []; // Surface block not properly initialized for edgeless mode
     }
 
     // Convert to array, parsing xywh strings
     const elements: Array<Record<string, unknown>> = [];
-    elementsMap.forEach((elementData: unknown) => {
+    this.forEachElement(elementsMap, (elementData: unknown) => {
       if (typeof elementData === 'object' && elementData !== null) {
         const element = { ...(elementData as Record<string, unknown>) };
 
@@ -1580,22 +1573,7 @@ export class AffineClient {
     }
 
     const surfaceBlock = surfaceBlockFound; // Type narrowing
-
-    // Get elements container (YMap structure)
-    const elementsWrapper = surfaceBlock.get('prop:elements');
-    if (!(elementsWrapper instanceof Y.Map)) {
-      throw new Error('Elements property not found or invalid in surface block');
-    }
-
-    // Check for native type marker
-    if (elementsWrapper.get('type') !== '$blocksuite:internal:native$') {
-      throw new Error('Elements property is not a native BlockSuite type');
-    }
-
-    const elementsMap = elementsWrapper.get('value');
-    if (!(elementsMap instanceof Y.Map)) {
-      throw new Error('Elements value is not a YMap');
-    }
+    const elementsMap = this.getElementsMap(surfaceBlock);
 
     // Generate element ID if not provided
     const elementId = (elementData.id as string) || nanoid();
@@ -1609,7 +1587,7 @@ export class AffineClient {
     // Generate index if not provided
     if (!processedElement.index) {
       const existingIndices: string[] = [];
-      elementsMap.forEach((el: unknown) => {
+      this.forEachElement(elementsMap, (el: unknown) => {
         if (typeof el === 'object' && el !== null && 'index' in el) {
           const idx = (el as { index: unknown }).index;
           if (typeof idx === 'string') {
@@ -1626,9 +1604,9 @@ export class AffineClient {
       processedElement.seed = Math.floor(Math.random() * 2147483647);
     }
 
-    // Add element to surface using YMap.set()
+    // Add element to surface
     doc.transact(() => {
-      elementsMap.set(elementId, processedElement);
+      this.setElement(elementsMap, elementId, processedElement);
     });
 
     await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
@@ -1679,25 +1657,11 @@ export class AffineClient {
     }
 
     const surfaceBlock = surfaceBlockFound; // Type narrowing
-
-    // Get elements container (YMap structure)
-    const elementsWrapper = surfaceBlock.get('prop:elements');
-    if (!(elementsWrapper instanceof Y.Map)) {
-      throw new Error('Elements property not found or invalid in surface block');
-    }
-
-    if (elementsWrapper.get('type') !== '$blocksuite:internal:native$') {
-      throw new Error('Elements property is not a native BlockSuite type');
-    }
-
-    const elementsMap = elementsWrapper.get('value');
-    if (!(elementsMap instanceof Y.Map)) {
-      throw new Error('Elements value is not a YMap');
-    }
+    const elementsMap = this.getElementsMap(surfaceBlock);
 
     // Get existing element
-    const existingElement = elementsMap.get(elementId);
-    if (!existingElement || typeof existingElement !== 'object') {
+    const existingElement = this.getElement(elementsMap, elementId);
+    if (!existingElement) {
       throw new Error(`Element ${elementId} not found`);
     }
 
@@ -1708,13 +1672,13 @@ export class AffineClient {
     }
 
     const updatedElement = {
-      ...(existingElement as Record<string, unknown>),
+      ...existingElement,
       ...processedUpdates,
     };
 
-    // Update element using YMap.set()
+    // Update element
     doc.transact(() => {
-      elementsMap.set(elementId, updatedElement);
+      this.setElement(elementsMap, elementId, updatedElement);
     });
 
     await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
@@ -1764,34 +1728,131 @@ export class AffineClient {
 
     const surfaceBlock = surfaceBlockFound; // Type narrowing
 
-    // Get elements container (YMap structure)
-    const elementsWrapper = surfaceBlock.get('prop:elements');
-    if (!(elementsWrapper instanceof Y.Map)) {
-      throw new Error('Elements property not found or invalid in surface block');
-    }
-
-    if (elementsWrapper.get('type') !== '$blocksuite:internal:native$') {
-      throw new Error('Elements property is not a native BlockSuite type');
-    }
-
-    const elementsMap = elementsWrapper.get('value');
-    if (!(elementsMap instanceof Y.Map)) {
-      throw new Error('Elements value is not a YMap');
-    }
+    // Get elements map (handles both YMap and plain object)
+    const elementsMap = this.getElementsMap(surfaceBlock);
 
     // Check if element exists
-    if (!elementsMap.has(elementId)) {
+    if (!this.hasElement(elementsMap, elementId)) {
       throw new Error(`Element ${elementId} not found`);
     }
 
-    // Delete element using YMap.delete()
+    // Delete element (handles both YMap and plain object)
     doc.transact(() => {
-      elementsMap.delete(elementId);
+      this.deleteElement(elementsMap, elementId);
     });
 
     await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
 
     return { elementId, deleted: true };
+  }
+
+  /**
+   * Helper: Extract elements map from surface block (handles both YMap and plain object).
+   */
+  private getElementsMap(
+    surfaceBlock: Y.Map<unknown>,
+  ): Y.Map<unknown> | Record<string, unknown> {
+    const elementsWrapper = surfaceBlock.get('prop:elements');
+    if (!elementsWrapper || typeof elementsWrapper !== 'object') {
+      throw new Error('Elements property not found in surface block');
+    }
+
+    // Handle YMap structure
+    if (elementsWrapper instanceof Y.Map) {
+      if (elementsWrapper.get('type') !== '$blocksuite:internal:native$') {
+        throw new Error('Elements property missing native type marker');
+      }
+      const value = elementsWrapper.get('value');
+      if (value instanceof Y.Map) {
+        return value;
+      } else if (typeof value === 'object' && value !== null) {
+        return value as Record<string, unknown>;
+      }
+      throw new Error('Elements value is invalid');
+    }
+
+    // Handle plain object structure
+    const wrapper = elementsWrapper as { type?: string; value?: unknown };
+    if (wrapper.type !== '$blocksuite:internal:native$') {
+      throw new Error('Elements property missing native type marker');
+    }
+    if (wrapper.value && typeof wrapper.value === 'object') {
+      return wrapper.value as Record<string, unknown>;
+    }
+    throw new Error('Elements value is invalid');
+  }
+
+  /**
+   * Helper: Set element in map (handles both YMap and plain object).
+   */
+  private setElement(
+    elementsMap: Y.Map<unknown> | Record<string, unknown>,
+    elementId: string,
+    elementData: Record<string, unknown>,
+  ): void {
+    if (elementsMap instanceof Y.Map) {
+      elementsMap.set(elementId, elementData);
+    } else {
+      elementsMap[elementId] = elementData;
+    }
+  }
+
+  /**
+   * Helper: Get element from map (handles both YMap and plain object).
+   */
+  private getElement(
+    elementsMap: Y.Map<unknown> | Record<string, unknown>,
+    elementId: string,
+  ): Record<string, unknown> | null {
+    if (elementsMap instanceof Y.Map) {
+      const el = elementsMap.get(elementId);
+      return el && typeof el === 'object' ? (el as Record<string, unknown>) : null;
+    } else {
+      const el = elementsMap[elementId];
+      return el && typeof el === 'object' ? (el as Record<string, unknown>) : null;
+    }
+  }
+
+  /**
+   * Helper: Delete element from map (handles both YMap and plain object).
+   */
+  private deleteElement(
+    elementsMap: Y.Map<unknown> | Record<string, unknown>,
+    elementId: string,
+  ): void {
+    if (elementsMap instanceof Y.Map) {
+      elementsMap.delete(elementId);
+    } else {
+      delete elementsMap[elementId];
+    }
+  }
+
+  /**
+   * Helper: Check if element exists in map (handles both YMap and plain object).
+   */
+  private hasElement(
+    elementsMap: Y.Map<unknown> | Record<string, unknown>,
+    elementId: string,
+  ): boolean {
+    if (elementsMap instanceof Y.Map) {
+      return elementsMap.has(elementId);
+    } else {
+      return elementId in elementsMap;
+    }
+  }
+
+  /**
+   * Helper: Iterate elements map (handles both YMap and plain object).
+   */
+  private forEachElement(
+    elementsMap: Y.Map<unknown> | Record<string, unknown>,
+    callback: (element: unknown) => void,
+  ): void {
+    if (elementsMap instanceof Y.Map) {
+      elementsMap.forEach(callback);
+    } else {
+      Object.values(elementsMap).forEach(callback);
+    }
   }
 
   /**
