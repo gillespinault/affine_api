@@ -2181,6 +2181,46 @@ export class AffineClient {
   }
 
   /**
+   * Get linked documents from a document by parsing its blocks for LinkedPage references.
+   *
+   * Returns an array of document IDs that are referenced in the document's content.
+   */
+  async getLinkedDocs(workspaceId: string, docId: string): Promise<string[]> {
+    const { doc } = await this.loadWorkspaceDoc(workspaceId, docId);
+
+    const linkedDocIds = new Set<string>();
+
+    // Get the blocks Map
+    const blocksMap = doc.getMap('blocks');
+    if (!blocksMap) {
+      return [];
+    }
+
+    // Iterate through all blocks
+    blocksMap.forEach((blockValue, _blockId) => {
+      if (!(blockValue instanceof Y.Map)) return;
+
+      const propsMap = blockValue.get('prop:text');
+
+      if (propsMap && propsMap instanceof Y.Text) {
+        const delta = propsMap.toDelta();
+
+        // Check if delta contains LinkedPage references
+        delta.forEach((op: any) => {
+          if (op.attributes?.reference?.type === 'LinkedPage') {
+            const pageId = op.attributes.reference.pageId;
+            if (typeof pageId === 'string') {
+              linkedDocIds.add(pageId);
+            }
+          }
+        });
+      }
+    });
+
+    return Array.from(linkedDocIds);
+  }
+
+  /**
    * Get complete workspace hierarchy including folders, documents, and subdocuments.
    *
    * Returns a tree structure where:
@@ -2188,7 +2228,8 @@ export class AffineClient {
    * - Documents can be children of folders or other documents (subdocs)
    * - Documents at root level have no parentId
    *
-   * This correctly handles subdocuments (documents whose parent is another document).
+   * Subdocuments are documents that are referenced via LinkedPage in their parent document.
+   * This method parses each document's content to find these references and builds the complete tree.
    */
   async getHierarchy(workspaceId: string): Promise<
     Array<{
@@ -2209,7 +2250,7 @@ export class AffineClient {
       docTitles.set(summary.docId, summary.title || 'Untitled');
     }
 
-    // Build complete node map (folders AND docs)
+    // Build complete node map (folders AND docs from folders structure)
     const nodeMap = new Map<
       string,
       {
@@ -2221,6 +2262,9 @@ export class AffineClient {
         parentId?: string;
       }
     >();
+
+    // Track which docIds are already in the folders structure
+    const docsInFolders = new Set<string>();
 
     // Iterate over all nodes in folders doc
     doc.share.forEach((_, nodeId) => {
@@ -2241,8 +2285,9 @@ export class AffineClient {
           parentId: typeof parentId === 'string' ? parentId : undefined,
         });
       } else if (type === 'doc') {
-        // Document node (including subdocs!)
+        // Document node
         const docId = typeof data === 'string' ? data : '';
+        docsInFolders.add(docId);
         nodeMap.set(nodeId, {
           type: 'doc',
           id: nodeId,
@@ -2253,6 +2298,39 @@ export class AffineClient {
         });
       }
     });
+
+    // Now load linked docs for each document in the folders structure
+    // This will add subdocs that are referenced via LinkedPage
+    const docNodesToProcess = Array.from(nodeMap.values()).filter(
+      node => node.type === 'doc' && node.docId
+    );
+
+    for (const docNode of docNodesToProcess) {
+      if (!docNode.docId) continue;
+
+      try {
+        const linkedDocIds = await this.getLinkedDocs(workspaceId, docNode.docId);
+
+        for (const linkedDocId of linkedDocIds) {
+          // Only add if not already in folders structure
+          if (!docsInFolders.has(linkedDocId)) {
+            // Create a synthetic node for this linked doc
+            const linkedNodeId = `linked-${linkedDocId}`;
+            docNode.children.push({
+              type: 'doc',
+              id: linkedNodeId,
+              name: docTitles.get(linkedDocId) || 'Untitled',
+              docId: linkedDocId,
+              children: [], // Could recurse here for nested linked docs
+            });
+            docsInFolders.add(linkedDocId);
+          }
+        }
+      } catch (error) {
+        // Silently skip documents that fail to load
+        console.error(`Failed to load linked docs for ${docNode.docId}:`, error);
+      }
+    }
 
     // Build tree structure
     const tree: Array<{
