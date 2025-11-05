@@ -2119,13 +2119,28 @@ export class AffineClient {
       { id: string; name: string; children: unknown[]; documents: string[]; parentId?: string }
     >();
 
+    // DEBUG: Log raw structure
+    console.log('[DEBUG getFolderTree] doc.share size:', doc.share.size);
+    const allNodes: Array<{nodeId: string, type: unknown, keys: string[]}> = [];
+
     // Iterate over all keys in the root doc (each key is a nodeId)
     doc.share.forEach((value, nodeId) => {
+      // DEBUG: Log each node
+      const isMap = value instanceof Y.Map;
+      const keys = isMap ? Array.from((value as Y.Map<unknown>).keys()) : [];
+      const type = isMap ? (value as Y.Map<unknown>).get('type') : undefined;
+
+      allNodes.push({
+        nodeId,
+        type,
+        keys
+      });
+
       if (!(value instanceof Y.Map)) return;
 
-      const type = value.get('type');
+      const actualType = value.get('type');
       // Only process folder nodes (not doc nodes)
-      if (type !== 'folder') return;
+      if (actualType !== 'folder') return;
 
       const data = value.get('data');
       const parentId = value.get('parentId');
@@ -2138,6 +2153,10 @@ export class AffineClient {
         parentId: typeof parentId === 'string' ? parentId : undefined,
       });
     });
+
+    // DEBUG: Log summary
+    console.log('[DEBUG getFolderTree] All nodes found:', JSON.stringify(allNodes, null, 2));
+    console.log('[DEBUG getFolderTree] Folder nodes found:', folderMap.size);
 
     // Load document list to assign documents to folders
     const summaries = await this.listDocuments(workspaceId);
