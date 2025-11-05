@@ -2119,10 +2119,7 @@ export class AffineClient {
       { id: string; name: string; children: unknown[]; documents: string[]; parentId?: string }
     >();
 
-    // DEBUG: Log raw structure
-    console.log('[DEBUG getFolderTree] doc.share keys:', Array.from(doc.share.keys()));
-
-    // CORRECT APPROACH: Iterate over doc.share keys and use getMap() for each nodeId
+    // Iterate over doc.share keys and use getMap() for each nodeId
     doc.share.forEach((_, nodeId) => {
       // Get the Y.Map for this node
       const nodeMap = doc.getMap(nodeId);
@@ -2131,16 +2128,6 @@ export class AffineClient {
       const type = nodeMap.get('type');
       const data = nodeMap.get('data');
       const parentId = nodeMap.get('parentId');
-
-      // DEBUG: Log first few nodes
-      if (folderMap.size < 3) {
-        console.log(`[DEBUG] Node ${nodeId}:`, {
-          type,
-          data,
-          parentId,
-          keys: Array.from(nodeMap.keys())
-        });
-      }
 
       // Only process folder nodes (not doc nodes)
       if (type !== 'folder') return;
@@ -2153,8 +2140,6 @@ export class AffineClient {
         parentId: typeof parentId === 'string' ? parentId : undefined,
       });
     });
-
-    console.log('[DEBUG getFolderTree] Folder nodes found:', folderMap.size);
 
     // Load document list to assign documents to folders
     const summaries = await this.listDocuments(workspaceId);
@@ -2215,10 +2200,10 @@ export class AffineClient {
     const foldersId = `db$${workspaceId}$folders`;
     const { doc } = await this.loadWorkspaceDoc(workspaceId, foldersId);
 
-    // Get the folder node directly from root
-    const folderData = doc.share.get(folderId);
+    // Get the folder node using doc.getMap()
+    const folderData = doc.getMap(folderId);
 
-    if (!(folderData instanceof Y.Map)) {
+    if (!folderData || folderData.size === 0) {
       throw new Error(`Folder ${folderId} not found`);
     }
 
@@ -2233,15 +2218,16 @@ export class AffineClient {
 
     // Find subfolders by iterating root keys
     const subfolders: Array<{ id: string; name: string }> = [];
-    doc.share.forEach((value, nodeId) => {
-      if (!(value instanceof Y.Map)) return;
+    doc.share.forEach((_, nodeId) => {
+      const nodeMap = doc.getMap(nodeId);
+      if (!nodeMap || nodeMap.size === 0) return;
 
-      const type = value.get('type');
+      const type = nodeMap.get('type');
       if (type !== 'folder') return;
 
-      const parentId = value.get('parentId');
+      const parentId = nodeMap.get('parentId');
       if (parentId === folderId) {
-        const subData = value.get('data');
+        const subData = nodeMap.get('data');
         subfolders.push({
           id: nodeId,
           name: typeof subData === 'string' ? subData : 'Untitled',
