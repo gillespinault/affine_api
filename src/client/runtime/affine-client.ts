@@ -2144,8 +2144,9 @@ export class AffineClient {
     // Load document list to assign documents to folders
     const summaries = await this.listDocuments(workspaceId);
     for (const doc of summaries) {
-      if (doc.folderNodeId) {
-        const folder = folderMap.get(doc.folderNodeId);
+      // Use folderId (parentId of doc node) instead of folderNodeId (doc node itself)
+      if (doc.folderId) {
+        const folder = folderMap.get(doc.folderId);
         if (folder) {
           folder.documents.push(doc.docId);
         }
