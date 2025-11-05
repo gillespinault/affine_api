@@ -2181,6 +2181,117 @@ export class AffineClient {
   }
 
   /**
+   * Get complete workspace hierarchy including folders, documents, and subdocuments.
+   *
+   * Returns a tree structure where:
+   * - Folders are nodes with type='folder'
+   * - Documents can be children of folders or other documents (subdocs)
+   * - Documents at root level have no parentId
+   *
+   * This correctly handles subdocuments (documents whose parent is another document).
+   */
+  async getHierarchy(workspaceId: string): Promise<
+    Array<{
+      type: 'folder' | 'doc';
+      id: string;
+      name: string;
+      docId?: string; // Only for type='doc'
+      children: Array<unknown>; // Recursive type
+    }>
+  > {
+    const foldersId = `db$${workspaceId}$folders`;
+    const { doc } = await this.loadWorkspaceDoc(workspaceId, foldersId);
+
+    // Load all documents to get their titles
+    const summaries = await this.listDocuments(workspaceId);
+    const docTitles = new Map<string, string>();
+    for (const summary of summaries) {
+      docTitles.set(summary.docId, summary.title || 'Untitled');
+    }
+
+    // Build complete node map (folders AND docs)
+    const nodeMap = new Map<
+      string,
+      {
+        type: 'folder' | 'doc';
+        id: string;
+        name: string;
+        docId?: string;
+        children: unknown[];
+        parentId?: string;
+      }
+    >();
+
+    // Iterate over all nodes in folders doc
+    doc.share.forEach((_, nodeId) => {
+      const nodeYMap = doc.getMap(nodeId);
+      if (!nodeYMap || nodeYMap.size === 0) return;
+
+      const type = nodeYMap.get('type');
+      const data = nodeYMap.get('data');
+      const parentId = nodeYMap.get('parentId');
+
+      if (type === 'folder') {
+        // Folder node
+        nodeMap.set(nodeId, {
+          type: 'folder',
+          id: nodeId,
+          name: typeof data === 'string' ? data : 'Untitled',
+          children: [],
+          parentId: typeof parentId === 'string' ? parentId : undefined,
+        });
+      } else if (type === 'doc') {
+        // Document node (including subdocs!)
+        const docId = typeof data === 'string' ? data : '';
+        nodeMap.set(nodeId, {
+          type: 'doc',
+          id: nodeId,
+          name: docTitles.get(docId) || 'Untitled',
+          docId: docId,
+          children: [],
+          parentId: typeof parentId === 'string' ? parentId : undefined,
+        });
+      }
+    });
+
+    // Build tree structure
+    const tree: Array<{
+      type: 'folder' | 'doc';
+      id: string;
+      name: string;
+      docId?: string;
+      children: Array<unknown>;
+    }> = [];
+
+    nodeMap.forEach(node => {
+      if (!node.parentId) {
+        // Root node (folders only at root, or orphaned docs)
+        tree.push({
+          type: node.type,
+          id: node.id,
+          name: node.name,
+          docId: node.docId,
+          children: node.children,
+        });
+      } else {
+        // Child node - add to parent
+        const parent = nodeMap.get(node.parentId);
+        if (parent) {
+          parent.children.push({
+            type: node.type,
+            id: node.id,
+            name: node.name,
+            docId: node.docId,
+            children: node.children,
+          });
+        }
+      }
+    });
+
+    return tree;
+  }
+
+  /**
    * Get contents of a specific folder.
    *
    * Returns:

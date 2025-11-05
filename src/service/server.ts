@@ -410,6 +410,30 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
   });
 
   /**
+   * GET /workspaces/:id/hierarchy
+   * Get complete workspace hierarchy including folders, documents, and subdocuments
+   */
+  app.get('/workspaces/:id/hierarchy', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const client = createClient(config);
+
+    try {
+      const { email, password } = await credentialProvider.getCredentials(id);
+      await client.signIn(email, password);
+      await client.connectSocket();
+      await client.joinWorkspace(id);
+
+      const hierarchy = await client.getHierarchy(id);
+      reply.send({ workspaceId: id, hierarchy });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  /**
    * GET /workspaces/:workspaceId/folders/:folderId
    * Get contents of a specific folder
    */
