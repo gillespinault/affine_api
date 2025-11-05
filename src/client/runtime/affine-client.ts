@@ -2120,52 +2120,30 @@ export class AffineClient {
     >();
 
     // DEBUG: Log raw structure
-    console.log('[DEBUG getFolderTree] doc.share size:', doc.share.size);
-    const allNodes: Array<{nodeId: string, yType: string, type: unknown, keys: string[], fullValue?: unknown}> = [];
+    console.log('[DEBUG getFolderTree] doc.share keys:', Array.from(doc.share.keys()));
 
-    // Iterate over all keys in the root doc (each key is a nodeId)
-    doc.share.forEach((value, nodeId) => {
-      // DEBUG: Log each node with actual type
-      const yTypeName = value.constructor.name; // Y.Map, Y.Array, Y.Text, etc.
-      const isMap = value instanceof Y.Map;
-      const isArray = value instanceof Y.Array;
-      const keys = isMap ? Array.from((value as Y.Map<unknown>).keys()) : [];
-      const type = isMap ? (value as Y.Map<unknown>).get('type') : undefined;
+    // CORRECT APPROACH: Iterate over doc.share keys and use getMap() for each nodeId
+    doc.share.forEach((_, nodeId) => {
+      // Get the Y.Map for this node
+      const nodeMap = doc.getMap(nodeId);
+      if (!nodeMap || nodeMap.size === 0) return;
 
-      // Try toJSON() method if available
-      let fullValue: unknown = undefined;
-      try {
-        if (typeof (value as any).toJSON === 'function') {
-          fullValue = (value as any).toJSON();
-        } else if (isArray) {
-          fullValue = (value as Y.Array<unknown>).toArray().slice(0, 3);
-        } else if (isMap) {
-          const mapObj: Record<string, unknown> = {};
-          (value as Y.Map<unknown>).forEach((v, k) => {
-            mapObj[k] = v;
-          });
-          fullValue = mapObj;
-        }
-      } catch (e) {
-        fullValue = `Error: ${e}`;
+      const type = nodeMap.get('type');
+      const data = nodeMap.get('data');
+      const parentId = nodeMap.get('parentId');
+
+      // DEBUG: Log first few nodes
+      if (folderMap.size < 3) {
+        console.log(`[DEBUG] Node ${nodeId}:`, {
+          type,
+          data,
+          parentId,
+          keys: Array.from(nodeMap.keys())
+        });
       }
 
-      allNodes.push({
-        nodeId,
-        yType: yTypeName,
-        type,
-        keys,
-        fullValue
-      });
-
-      if (!(value instanceof Y.Map)) return;
-
-      const actualType = value.get('type');
       // Only process folder nodes (not doc nodes)
-      if (actualType !== 'folder') return;
-
-      const data = value.get('data');
-      const parentId = value.get('parentId');
+      if (type !== 'folder') return;
 
       folderMap.set(nodeId, {
         id: nodeId,
@@ -2176,8 +2154,6 @@ export class AffineClient {
       });
     });
 
-    // DEBUG: Log summary
-    console.log('[DEBUG getFolderTree] All nodes found:', JSON.stringify(allNodes, null, 2));
     console.log('[DEBUG getFolderTree] Folder nodes found:', folderMap.size);
 
     // Load document list to assign documents to folders
