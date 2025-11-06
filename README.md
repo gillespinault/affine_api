@@ -14,10 +14,93 @@ Ce projet fournit :
 - **Opérations sur les blocs** – CRUD complet sur les blocs individuels (paragraphes, listes, etc.)
 - **Mode Edgeless / Canvas** ✅ – Création de shapes, connectors, text avec defaults BlockSuite automatiques
 - **Configuration du mode** ✅ – Définir le mode par défaut (page/edgeless) d'un document via API
-- **Intégrations MCP** – Compatibilité avec `affine-mcp-server` (analyse détaillée dans `docs/reference/affine-mcp-analysis.md`)
+- **Serveur MCP** ✨ – 31 outils Model Context Protocol pour agents IA (Claude Code, Claude Desktop)
+- **Intégrations MCP** – Analyse comparative avec `affine-mcp-server` (détails dans `docs/reference/affine-mcp-analysis.md`)
 - **Production-ready** – Déployé sur Dokploy avec SSL Let's Encrypt + webhook auto-deploy
 
-## 📚 API Endpoints (28 total)
+## 🤖 Serveur MCP (Model Context Protocol)
+
+En plus de l'API REST, ce projet fournit un **serveur MCP** permettant aux agents IA (Claude Code, Claude Desktop, Cline) de manipuler AFFiNE de manière autonome.
+
+### Pourquoi MCP ?
+
+- **Agents IA natifs** : Exposer les fonctionnalités AFFiNE directement aux LLMs
+- **Workflows conversationnels** : "Crée un document avec ce markdown" → Agent exécute automatiquement
+- **Prototypage rapide** : Tester des scénarios sans écrire de code d'intégration
+
+### 31 Outils Disponibles
+
+| Catégorie | Outils | Exemples |
+|-----------|--------|----------|
+| **Workspaces** (5) | list_workspaces, get_workspace, get_hierarchy | Navigation complète workspaces + folders + subdocs |
+| **Documents** (8) | create_document, update_document, search_documents | Import Markdown, CRUD complet, recherche |
+| **Blocks** (3) | add_block, update_block, delete_block | Ajout paragraphes, listes, code blocks |
+| **Edgeless Canvas** (5) | create_edgeless_element, list_elements | Créer shapes, connectors, flowcharts |
+| **Folders** (1) | create_folder | Organiser documents |
+| **Tags** (3) | list_tags, create_tag, delete_tag | Gestion tags |
+| **Meta** (1) | update_workspace_meta | Métadonnées workspace |
+| **Health** (1) | health_check | Diagnostic connexion |
+
+### Configuration Rapide
+
+**Claude Code (Linux/macOS)** - `~/.mcp.json` :
+```json
+{
+  "mcpServers": {
+    "affine-notebooks": {
+      "command": "node",
+      "args": ["/path/to/notebooks_api/bin/affine-mcp.js"],
+      "env": {
+        "AFFINE_BASE_URL": "https://affine.robotsinlove.be",
+        "AFFINE_EMAIL": "your-email@example.com",
+        "AFFINE_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+
+**Claude Desktop (Windows)** - `%APPDATA%\Claude\claude_desktop_config.json` :
+```json
+{
+  "mcpServers": {
+    "affine-notebooks": {
+      "command": "npx",
+      "args": ["-y", "github:gillespinault/affine_api", "affine-mcp"],
+      "env": {
+        "AFFINE_BASE_URL": "https://affine.robotsinlove.be",
+        "AFFINE_EMAIL": "your-email@example.com",
+        "AFFINE_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+
+### Documentation Complète
+
+📖 **Guide complet** : [`docs/mcp-guide.md`](docs/mcp-guide.md)
+- Installation et configuration détaillée
+- Liste exhaustive des 31 outils avec paramètres
+- Exemples d'utilisation pratiques
+- Troubleshooting (Windows, Linux, macOS)
+- Comparaison MCP vs REST API
+
+### Comparaison avec affine-mcp-server
+
+Notre serveur MCP apporte des fonctionnalités absentes du serveur communautaire :
+
+| Fonctionnalité | affine-mcp-server | AFFiNE Notebooks MCP |
+|----------------|-------------------|----------------------|
+| Support Edgeless | ❌ Basique | ✅ Complet (shapes, connectors) |
+| Import Markdown | ❌ Non | ✅ GitHub Flavored Markdown |
+| Navigation hiérarchique | ❌ Partielle | ✅ Folders + Subdocs |
+| Blocks CRUD | ❌ Append uniquement | ✅ Add/Update/Delete |
+| Tags management | ❌ Non | ✅ List/Create/Delete |
+
+Analyse détaillée : [`docs/reference/affine-mcp-analysis.md`](docs/reference/affine-mcp-analysis.md)
+
+## 📚 API Endpoints REST (28 total)
 
 ### Health Check
 ```bash

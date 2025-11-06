@@ -1,7 +1,7 @@
 {
   "name": "@serverlab/affine-api",
-  "version": "0.1.0",
-  "description": "Professional API toolkit for interacting with AFFiNE workspaces (Socket.IO + Yjs).",
+  "version": "0.2.0",
+  "description": "Professional API toolkit for interacting with AFFiNE workspaces - REST API (28 endpoints) + MCP Server (31 tools) for AI agents.",
   "type": "module",
   "license": "MIT",
   "private": true,

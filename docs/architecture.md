@@ -1,19 +1,70 @@
 # Architecture AFFiNE API
 
+**Version** : 0.2.0
+**Statut** : ✅ Production
+**Dernière mise à jour** : 2025-11-06
+
 ## Vision
 
 Fournir un SDK et des services backend capables de piloter AFFiNE (Socket.IO + Yjs) pour des automatisations professionnelles : création de documents (notes, dossiers), enrichissement de contenu, synchronisation avec d'autres systèmes (CRM, knowledge base, workflows internes).
 
-## Composants actuels
+## Composants en Production
 
-- **Client TypeScript (`src/client/`)** : encapsule l'authentification (REST `/api/auth/sign-in`), l'ouverture de WebSocket, l'émission des événements `space:*` et la manipulation de documents Yjs.
-  - `AffineClient` : API haut niveau (`signIn`, `createDocument`, `createFolder`, `registerDocInFolder`...). Refactor conservateur en cours pour factoriser les helpers (`wsUrlFromGraphQLEndpoint`, `pushDocUpdate`) inspirés du serveur MCP.
-  - Utilitaires exportés : `createDocYStructure`, `encodeUpdateToBase64`, `parseSetCookies`, `randomLexoRank`, etc.
-- **Scripts historiques (`scripts/`)** : CLI Node (CommonJS) utilisés comme POC. Ils s'appuient encore sur `lib/affineClient.js` (legacy). Une migration vers le build TypeScript est prévue.
-- **Service HTTP (`src/service/`)** : skeleton Fastify + CLI TypeScript (`src/service/cli/create-doc.ts`) reposant sur `AffineClient`.
-- **Pipeline Markdown** : parsing Markdown → blocs AFFiNE pour générer des pages riches (listes, tableaux, code).
-- **Tests (`tests/unit/`)** : démarrage de la couverture (Vitest) pour valider les structures Yjs générées. Les tests d'intégration/socket seront ajoutés côté staging AFFiNE.
-- **Docs (`docs/`)** : cette architecture, la roadmap, les guidelines de contribution.
+### Client TypeScript (`src/client/`)
+
+Encapsule l'authentification (REST `/api/auth/sign-in`), l'ouverture de WebSocket, l'émission des événements `space:*` et la manipulation de documents Yjs.
+
+- **`AffineClient`** : API haut niveau avec 23 méthodes
+  - Authentification : `signIn()`, `disconnect()`
+  - Workspaces : `listWorkspaces()`, `getWorkspaceDetails()`, `getHierarchy()`
+  - Documents : `createDocument()`, `updateDocument()`, `deleteDocument()`, `getDocumentContent()`
+  - Blocks : `addBlock()`, `updateBlock()`, `deleteBlock()`
+  - Edgeless : `addEdgelessElement()`, `getEdgelessElements()`, `updateEdgelessElement()`
+  - Folders : `createFolder()`, `getFolderTree()`, `registerDocInFolder()`
+  - Tags : `listTags()`, `deleteTag()`
+- **Utilitaires exportés** : `createDocYStructure`, `encodeUpdateToBase64`, `parseSetCookies`, `randomLexoRank`
+- **Factories** : `edgeless-factory.ts` pour génération defaults BlockSuite (shapes, connectors, text)
+
+### API REST Fastify (`src/service/`)
+
+**Production** : https://affine-api.robotsinlove.be
+
+- **28 endpoints REST** organisés en 8 catégories
+  - Workspaces (5) : Navigation complète + hiérarchie
+  - Documents (8) : CRUD + Markdown import + recherche
+  - Blocks (3) : Manipulation granulaire
+  - Edgeless (5) : Canvas shapes, connectors, text
+  - Folders (2) : Création + déplacement docs
+  - Tags (3) : Gestion complète
+  - Workspace meta (1) : Métadonnées
+  - Health (1) : Diagnostic
+- **Logging structuré** : Pino (format JSON)
+- **HTTP/2** : Via nginx reverse proxy
+- **Architecture** : Hybride GraphQL (metadata) + Yjs (content)
+
+### Serveur MCP (`src/mcp/`)
+
+**Version** : 0.1.0-mcp (2025-11-06)
+
+- **31 outils Model Context Protocol** pour agents IA
+- **Transport** : stdio (processus local)
+- **Clients supportés** : Claude Code, Claude Desktop, Cline
+- **Binaire** : `bin/affine-mcp.js`
+- **Documentation** : [`docs/mcp-guide.md`](mcp-guide.md)
+
+### Pipeline Markdown
+
+- **Import** : GitHub Flavored Markdown → blocs AFFiNE
+- **Éléments supportés** : Paragraphes, listes (ordered, unordered, task), code blocks, tables, headings, dividers
+- **Préservation** : Formatage (gras, italique, code inline)
+- **Module** : `src/client/markdown/markdown-to-yjs.ts`
+
+### Tests
+
+- **Framework** : Vitest
+- **Couverture** : Tests unitaires pour structures Yjs, factories Edgeless, parsing Markdown
+- **Localisation** : `tests/unit/`
+- **CI** : À intégrer (GitHub Actions)
 
 ## Couches à venir
 
