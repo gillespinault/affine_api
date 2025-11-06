@@ -11,11 +11,12 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "affine-api": "./dist/service/start.js",
-    "affine-mcp": "./dist/mcp/start.js"
+    "affine-api": "./bin/affine-api.js",
+    "affine-mcp": "./bin/affine-mcp.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "bin"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

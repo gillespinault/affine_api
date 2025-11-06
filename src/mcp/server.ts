@@ -1330,24 +1330,48 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
 });
 
 export async function startMcpServer() {
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (
+    chunk: Buffer | string,
+    encoding?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void,
+  ): boolean => {
+    let actualEncoding: BufferEncoding | undefined;
+    let actualCallback: ((error?: Error | null) => void) | undefined;
+    if (typeof encoding === 'function') {
+      actualCallback = encoding;
+    } else {
+      actualEncoding = encoding;
+      actualCallback = callback;
+    }
+
+    let stringChunk: string;
+    if (typeof chunk === 'string') {
+      stringChunk = chunk;
+    } else {
+      const enc = actualEncoding ?? 'utf8';
+      stringChunk = chunk.toString(enc);
+    }
+
+    const trimmed = stringChunk.trim();
+    const isJsonRpc =
+      trimmed.length === 0 ||
+      trimmed.startsWith('Content-Length:') ||
+      trimmed.includes('"jsonrpc"');
+
+    if (isJsonRpc) {
+      return originalWrite(chunk, actualEncoding, actualCallback);
+    }
+
+    // Redirect any non-JSONRPC stdout emission to stderr to avoid breaking MCP clients.
+    process.stderr.write(stringChunk);
+    if (typeof actualCallback === 'function') {
+      actualCallback();
+    }
+    return true;
+  };
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error('✓ MCP Server ready');
-
-  // Wait until the client closes the transport or an error occurs.
-  await new Promise<void>(resolve => {
-    const previousOnClose = transport.onclose;
-    const previousOnError = transport.onerror;
-
-    transport.onclose = () => {
-      previousOnClose?.();
-      resolve();
-    };
-
-    transport.onerror = error => {
-      previousOnError?.(error);
-      console.error('Transport error:', error);
-      resolve();
-    };
-  });
 }
