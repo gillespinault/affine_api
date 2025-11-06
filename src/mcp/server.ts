@@ -1357,9 +1357,7 @@ export async function startMcpServer() {
     const isJsonRpc =
       trimmed.length === 0 ||
       trimmed.startsWith('Content-Length:') ||
-      trimmed.startsWith('Content-Type:') ||
-      trimmed.startsWith('{"jsonrpc"') ||
-      trimmed.startsWith('[{"jsonrpc"');
+      trimmed.includes('"jsonrpc"');
 
     if (isJsonRpc) {
       return originalWrite(chunk, actualEncoding, actualCallback);
