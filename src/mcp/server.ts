@@ -18,94 +18,6 @@ type ToolDefinition = {
   handler: (args: Args) => Promise<CallToolResult>;
 };
 
-const STDOUT_PATCH_FLAG = Symbol.for('affine.notebooks.mcp.stdoutPatched');
-
-type PatchedStdout = typeof process.stdout & { [STDOUT_PATCH_FLAG]?: boolean };
-
-function isJsonRpcMessageLike(value: unknown): boolean {
-  if (Array.isArray(value)) {
-    return value.length > 0 && value.every(item => isJsonRpcMessageLike(item));
-  }
-
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-
-  const record = value as Record<string, unknown>;
-  if (record.jsonrpc !== '2.0') {
-    return false;
-  }
-
-  const hasMethod = typeof record.method === 'string';
-  const hasResult = Object.prototype.hasOwnProperty.call(record, 'result');
-  const hasError = Object.prototype.hasOwnProperty.call(record, 'error');
-  const hasId = Object.prototype.hasOwnProperty.call(record, 'id');
-
-  if (hasMethod) {
-    // Requests and notifications must have a string method; id is optional for notifications.
-    return true;
-  }
-
-  if (hasResult || hasError) {
-    // Responses must include an id (can be null).
-    return hasId;
-  }
-
-  return false;
-}
-
-function isJsonRpcPayloadString(payload: string): boolean {
-  try {
-    const parsed = JSON.parse(payload);
-    return isJsonRpcMessageLike(parsed);
-  } catch {
-    return false;
-  }
-}
-
-const stdoutWithFlag = process.stdout as PatchedStdout;
-if (!stdoutWithFlag[STDOUT_PATCH_FLAG]) {
-  const originalWrite = process.stdout.write.bind(process.stdout);
-
-  process.stdout.write = (
-    chunk: Buffer | string,
-    encoding?: BufferEncoding | ((error?: Error | null) => void),
-    callback?: (error?: Error | null) => void,
-  ): boolean => {
-    let actualEncoding: BufferEncoding | undefined;
-    let actualCallback: ((error?: Error | null) => void) | undefined;
-
-    if (typeof encoding === 'function') {
-      actualCallback = encoding;
-    } else {
-      actualEncoding = encoding;
-      actualCallback = callback;
-    }
-
-    const stringChunk =
-      typeof chunk === 'string' ? chunk : chunk.toString(actualEncoding ?? 'utf8');
-    const trimmed = stringChunk.trim();
-
-    const shouldForward =
-      trimmed.length === 0 ||
-      /^Content-Length:/i.test(trimmed) ||
-      /^Content-Type:/i.test(trimmed) ||
-      isJsonRpcPayloadString(trimmed);
-
-    if (shouldForward) {
-      return originalWrite(chunk, actualEncoding, actualCallback);
-    }
-
-    process.stderr.write(stringChunk);
-    if (typeof actualCallback === 'function') {
-      actualCallback();
-    }
-    return true;
-  };
-
-  stdoutWithFlag[STDOUT_PATCH_FLAG] = true;
-}
-
 const server = new Server({
   name: 'affine-notebooks-mcp',
   version: '0.1.0',
@@ -1418,6 +1330,49 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
 });
 
 export async function startMcpServer() {
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (
+    chunk: Buffer | string,
+    encoding?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void,
+  ): boolean => {
+    let actualEncoding: BufferEncoding | undefined;
+    let actualCallback: ((error?: Error | null) => void) | undefined;
+    if (typeof encoding === 'function') {
+      actualCallback = encoding;
+    } else {
+      actualEncoding = encoding;
+      actualCallback = callback;
+    }
+
+    let stringChunk: string;
+    if (typeof chunk === 'string') {
+      stringChunk = chunk;
+    } else {
+      const enc = actualEncoding ?? 'utf8';
+      stringChunk = chunk.toString(enc);
+    }
+
+    const trimmed = stringChunk.trim();
+    const isJsonRpc =
+      trimmed.length === 0 ||
+      trimmed.startsWith('Content-Length:') ||
+      trimmed.startsWith('Content-Type:') ||
+      trimmed.startsWith('{"jsonrpc"') ||
+      trimmed.startsWith('[{"jsonrpc"');
+
+    if (isJsonRpc) {
+      return originalWrite(chunk, actualEncoding, actualCallback);
+    }
+
+    // Redirect any non-JSONRPC stdout emission to stderr to avoid breaking MCP clients.
+    process.stderr.write(stringChunk);
+    if (typeof actualCallback === 'function') {
+      actualCallback();
+    }
+    return true;
+  };
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error('✓ MCP Server ready');
