@@ -10,6 +10,10 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "affine-api": "./dist/service/start.js",
+    "affine-mcp": "./dist/mcp/start.js"
+  },
   "files": [
     "dist"
   ],
@@ -20,9 +24,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "cli:create-doc": "tsx src/service/cli/create-doc.ts",
-    "start": "node dist/service/start.js"
+    "start": "node dist/service/start.js",
+    "start:mcp": "node dist/mcp/start.js"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.21.0",
     "fastify": "^4.28.1",
     "mdast-util-to-string": "^4.0.0",
     "remark": "^15.0.1",
