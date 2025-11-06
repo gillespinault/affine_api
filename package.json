@@ -25,7 +25,8 @@
     "test:watch": "vitest",
     "cli:create-doc": "tsx src/service/cli/create-doc.ts",
     "start": "node dist/service/start.js",
-    "start:mcp": "node dist/mcp/start.js"
+    "start:mcp": "node dist/mcp/start.js",
+    "prepare": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.21.0",
