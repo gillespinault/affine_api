@@ -1333,4 +1333,21 @@ export async function startMcpServer() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error('✓ MCP Server ready');
+
+  // Wait until the client closes the transport or an error occurs.
+  await new Promise<void>(resolve => {
+    const previousOnClose = transport.onclose;
+    const previousOnError = transport.onerror;
+
+    transport.onclose = () => {
+      previousOnClose?.();
+      resolve();
+    };
+
+    transport.onerror = error => {
+      previousOnError?.(error);
+      console.error('Transport error:', error);
+      resolve();
+    };
+  });
 }
