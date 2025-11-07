@@ -1321,6 +1321,29 @@ L'API utilise les credentials côté serveur (pas d'API keys) :
 
 ## 🐛 Débogage
 
+## ✅ État & prochaines étapes
+
+### Ce qui est en place (2025-11-07)
+
+- REST : 37+ endpoints (Workspaces, Documents, Blocks, Tags, Edgeless, Copilot Search/Status/Corpus, Historique list/recover).
+- MCP : 41 outils (Copilot + Historique inclus).
+- Smoke tests :
+  - `scripts/run-affine-api-test.ts` – CRUD Markdown + tags.
+  - `scripts/run-copilot-embedding-smoke.ts` – embeddings + `/copilot/search` (doc `SxjNhXGckl3oz2RTVUc8p`).
+  - `scripts/run-history-recovery-smoke.ts` – `/history` + `/history/recover` (doc `t9dGJJqbC2gAvlbonvj4P`).
+- Documentation utilisateur synchronisée dans AFFiNE (`Affine_API/Documentation/AFFiNE REST API – Guide 2025-11`).
+- Déploiement Dokploy opérationnel (auto-deploy sur `main`).
+
+### Priorité suivante (Phase 3)
+
+1. Commentaires (CRUD + resolve).
+2. Notifications (list/read/read-all).
+3. Tokens personnels (create/list/revoke).
+4. Publication publique + lifecycle workspace + blobs/apply-updates.
+
+> Conserver le workflow : helpers client → REST → MCP → script smoke + mise à jour AFFiNE.
+
+
 ### Logs serveur
 
 ```bash
