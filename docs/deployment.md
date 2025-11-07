@@ -2,7 +2,13 @@
 
 Ce guide décrit comment préparer la publication GitHub du projet et organiser un déploiement Dokploy, en prenant pour modèle la stack `noemai-voice`.
 
-## 1. Préparer la publication GitHub
+## 1. Environnements & stratégie
+
+- **Local dev** : Fastify tourne en local (Node ou Docker). Même code que la prod, mais les variables `AFFINE_*` pointent vers l’instance distante. Utiliser `HOST=127.0.0.1` si l’écoute sur `0.0.0.0` est restreinte. Indispensable pour tester une mutation sans attendre le pipeline Dokploy.
+- **Production (Dokploy)** : image construite depuis `main`. Déploiement automatique via webhook GitHub → Dokploy, domaine `affine-api.robotsinlove.be`, SSL obligatoire. Les secrets sont gérés côté Dokploy.
+- **Workflow recommandé** : développement local → PR/GitHub → merge dans `main` → auto-build Dokploy → smoke-test (`scripts/run-affine-api-test.ts`). Garder le serveur local disponible pour reproduire un incident même si la prod reste gérée par Dokploy.
+
+## 2. Préparer la publication GitHub
 
 1. **Nettoyer les secrets** : vérifier que `AFFINE_EMAIL`, `AFFINE_PASSWORD`, cookies ou tokens ne sont jamais commit (voir `.gitignore`).  
 2. **Créer le dépôt** : `serverlab/affine-api` (privé dans un premier temps).  
@@ -15,7 +21,7 @@ Ce guide décrit comment préparer la publication GitHub du projet et organiser 
    - Activer Dependabot/secrets scanning.  
 5. **Release** : conserver `dist/` comme artefact build (publier via Releases ou registry interne quand prêt).
 
-## 2. Durcir le service Fastify
+## 3. Durcir le service Fastify
 
 Avant une mise en ligne :
 
@@ -24,7 +30,7 @@ Avant une mise en ligne :
 - Écrire les tests d’intégration (mock `ioFactory`) et l’intégration `AffineClient.createDocument` avec `tags`.  
 - Penser à l’automatisation de nettoyage pour les documents générés par `scripts/run-affine-api-test.ts`.
 
-## 3. Packaging & Runtime
+## 4. Packaging & Runtime
 
 1. **Runtime Node** :
    ```bash
@@ -36,7 +42,7 @@ Avant une mise en ligne :
 2. **Dockerfile** : un multi-stage est fourni à la racine (`Dockerfile`). Il exécute `npm ci`, `npm run build`, puis ne conserve que les dépendances de production et le dossier `dist/`.
 3. **Docker Compose (optionnel)** : prévoir des services additionnels (Redis, metrics) si requis pour la prod.
 
-## 4. Déploiement Dokploy
+## 5. Déploiement Dokploy
 
 1. **Créer une app** dans `Dokploy → ServerLab Apps → Create Service` en mode *Application*.  
 2. **Source** : GitHub `serverlab/affine-api`, branche `main`.  
@@ -63,13 +69,13 @@ Avant une mise en ligne :
    ```
    Le script nettoie désormais la note générée (`deleteDocument`).
 
-## 5. Observabilité & Suivi
+## 6. Observabilité & Suivi
 
 - Ajouter Prometheus metrics/health checks (`/healthz` existe déjà).  
 - Brancher les logs Dokploy → Loki/ELK si disponibles.  
 - Suivre la feuille de route `docs/roadmap.md` pour la partie monitoring et n8n.
 
-## 6. Prochaines actions
+## 7. Prochaines actions
 
 1. Documenter l’intégration n8n dès que l’API est stable.  
 2. Ajouter un guide utilisateur (exemples curl/Node) une fois les endpoints GET/PATCH exposés.  

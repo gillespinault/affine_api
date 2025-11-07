@@ -300,7 +300,11 @@ export function createDocYStructureFromMarkdown(options: MarkdownDocOptions) {
           const cells = tableBlock.rows[rowIndex] ?? [];
           columnIds.forEach((columnId, columnIndex) => {
             const cellText = cells[columnIndex] ?? '';
-            map.set(`prop:cells.${rowId}:${columnId}.text`, cellText);
+            const textNode = new Y.Text();
+            if (cellText.length) {
+              textNode.insert(0, cellText);
+            }
+            map.set(`prop:cells.${rowId}:${columnId}.text`, textNode);
           });
         });
         break;

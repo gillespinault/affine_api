@@ -507,6 +507,27 @@ npm test              # Run all tests
 npm run test:watch    # Watch mode
 ```
 
+## 🌐 Architecture des environnements
+
+- **Local (développement)**  
+  - L’API Fastify tourne en local via `npm run dev` (reload) ou `node dist/service/start.js` après `npm run build`.  
+  - Variables nécessaires : `AFFINE_EMAIL`, `AFFINE_PASSWORD`, `AFFINE_BASE_URL` (par défaut `https://affine.robotsinlove.be`).  
+  - Utiliser `HOST=127.0.0.1` (ou `HOST=0.0.0.0` lorsque c’est autorisé) et `PORT=<port>` pour personnaliser l’écoute.  
+  - Les requêtes REST touchent l’instance AFFiNE distante directement, ce qui permet de valider les changements sans déployer.
+
+- **Production (Dokploy)**  
+  - Déployée automatiquement depuis GitHub → branche `main` → Dokploy (Dockerfile).  
+  - Secrets `AFFINE_*` sont injectés via Dokploy.  
+  - Domaine par défaut : `https://affine-api.robotsinlove.be` avec SSL Let’s Encrypt.
+
+- **Flux recommandé**  
+  1. Développer/tester localement (Fastify + scripts `scripts/run-affine-api-test.ts`).  
+  2. Commit/push sur `main`.  
+  3. Dokploy reconstruit l’image via Webhook et redéploie.  
+  4. Vérifier via `/healthz` ou le smoke-test `npm run run-affine-api-test`.
+
+Cette séparation permet de garder un environnement production stable tout en offrant un terrain de test local pour les corrections rapides (ex : reproduction d’un bug sans attendre le déploiement Dokploy).
+
 ## 📖 Exemples d'utilisation
 
 ### Créer un document avec Markdown

@@ -112,9 +112,27 @@ describe('createDocYStructureFromMarkdown', () => {
     const [headerRowId, firstDataRowId] = rowIds;
     const [firstColumnId, secondColumnId] = columnIds;
 
-    expect(tableBlock!.get(`prop:cells.${headerRowId}:${firstColumnId}.text`)).toBe('Name');
-    expect(tableBlock!.get(`prop:cells.${headerRowId}:${secondColumnId}.text`)).toBe('Value');
-    expect(tableBlock!.get(`prop:cells.${firstDataRowId}:${firstColumnId}.text`)).toBe('Foo');
-    expect(tableBlock!.get(`prop:cells.${firstDataRowId}:${secondColumnId}.text`)).toBe('123');
+    const firstHeaderCell = tableBlock!.get(
+      `prop:cells.${headerRowId}:${firstColumnId}.text`,
+    );
+    const secondHeaderCell = tableBlock!.get(
+      `prop:cells.${headerRowId}:${secondColumnId}.text`,
+    );
+    const firstDataCell = tableBlock!.get(
+      `prop:cells.${firstDataRowId}:${firstColumnId}.text`,
+    );
+    const secondDataCell = tableBlock!.get(
+      `prop:cells.${firstDataRowId}:${secondColumnId}.text`,
+    );
+
+    expect(firstHeaderCell).toBeInstanceOf(Y.Text);
+    expect(secondHeaderCell).toBeInstanceOf(Y.Text);
+    expect(firstDataCell).toBeInstanceOf(Y.Text);
+    expect(secondDataCell).toBeInstanceOf(Y.Text);
+
+    expect((firstHeaderCell as Y.Text).toString()).toBe('Name');
+    expect((secondHeaderCell as Y.Text).toString()).toBe('Value');
+    expect((firstDataCell as Y.Text).toString()).toBe('Foo');
+    expect((secondDataCell as Y.Text).toString()).toBe('123');
   });
 });
