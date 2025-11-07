@@ -8,14 +8,14 @@ API REST complète pour gérer programmatiquement des documents et dossiers dans
 
 Ce projet fournit :
 - **Client TypeScript** (`AffineClient`) – Authentification, Socket.IO, mutations Yjs (refactor en cours pour factoriser les helpers hérités du MCP)
-- **API REST Fastify** – 37+ endpoints pour workspace navigation, documents, folders, tags, blocks, edgeless, Copilot et historique
+- **API REST Fastify** – 48 endpoints (workspaces, documents, folders, tags, blocks, edgeless, Copilot, historique, commentaires, notifications, tokens)
 - **Support Markdown** – Import/export avec GitHub Flavored Markdown
 - **Lecture structurée** – Extraction des blocs Yjs en JSON exploitable
 - **Opérations sur les blocs** – CRUD complet sur les blocs individuels (paragraphes, listes, etc.)
 - **Mode Edgeless / Canvas** ✅ – Création de shapes, connectors, text avec defaults BlockSuite automatiques
 - **Configuration du mode** ✅ – Définir le mode par défaut (page/edgeless) d'un document via API
 - **Copilot Search & Embeddings** – Recherche vectorielle native, statut, gestion des fichiers et docs ignorés via REST & MCP
-- **Serveur MCP** ✨ – 41 outils Model Context Protocol (ajout Copilot/Embeddings + historique) pour agents IA (Claude Code, Claude Desktop)
+- **Serveur MCP** ✨ – 52 outils Model Context Protocol (Copilot/Embeddings, historique, commentaires, notifications, tokens) pour agents IA (Claude Code, Claude Desktop)
 - **Intégrations MCP** – Analyse comparative avec `affine-mcp-server` (détails dans `docs/reference/affine-mcp-analysis.md`)
 - **Production-ready** – Déployé sur Dokploy avec SSL Let's Encrypt + webhook auto-deploy
 
@@ -29,7 +29,7 @@ En plus de l'API REST, ce projet fournit un **serveur MCP** permettant aux agent
 - **Workflows conversationnels** : "Crée un document avec ce markdown" → Agent exécute automatiquement
 - **Prototypage rapide** : Tester des scénarios sans écrire de code d'intégration
 
-### 41 Outils Disponibles
+### 52 Outils Disponibles
 
 | Catégorie | Outils | Exemples |
 |-----------|--------|----------|
@@ -41,6 +41,9 @@ En plus de l'API REST, ce projet fournit un **serveur MCP** permettant aux agent
 | **Tags** (3) | list_tags, create_tag, delete_tag | Gestion tags |
 | **Copilot / Embeddings** (8) | copilot_search, copilot_embedding_status, list/update ignored docs, queue_doc_embedding, list/add/remove embedding files | Recherche vectorielle AFFiNE, pilotage du pipeline d'indexation |
 | **Historique** (2) | list_document_history, recover_document_version | Audit et restauration de versions AFFiNE |
+| **Commentaires** (5) | list_comments, create_comment, update_comment, delete_comment, resolve_comment | Collaboration async, suivi des fils avec mentions |
+| **Notifications** (3) | list_notifications, read_notification, read_all_notifications | Mettre à jour les alertes utilisateur depuis un workflow |
+| **Tokens** (3) | list_access_tokens, create_access_token, revoke_access_token | Gestion self-service des tokens personnels |
 | **Meta** (1) | update_workspace_meta | Métadonnées workspace |
 | **Health** (1) | health_check | Diagnostic connexion |
 
@@ -103,7 +106,7 @@ Notre serveur MCP apporte des fonctionnalités absentes du serveur communautaire
 
 Analyse détaillée : [`docs/reference/affine-mcp-analysis.md`](docs/reference/affine-mcp-analysis.md)
 
-## 📚 API Endpoints REST (37+ total)
+## 📚 API Endpoints REST (48 total)
 
 ### Health Check
 ```bash
@@ -169,6 +172,29 @@ POST   /workspaces/:workspaceId/copilot/queue              # Enfiler des docs po
 GET    /workspaces/:workspaceId/copilot/files              # Lister les fichiers embarqués
 POST   /workspaces/:workspaceId/copilot/files              # Uploader un fichier (base64)
 DELETE /workspaces/:workspaceId/copilot/files/:fileId      # Supprimer un fichier
+```
+
+### Commentaires (5 endpoints - NOUVEAU)
+```bash
+GET    /workspaces/:workspaceId/documents/:docId/comments                    # Lister commentaires + replies
+POST   /workspaces/:workspaceId/documents/:docId/comments                    # Créer commentaire (Page/Edgeless, mentions)
+PATCH  /workspaces/:workspaceId/documents/:docId/comments/:commentId         # Mettre à jour le contenu
+DELETE /workspaces/:workspaceId/documents/:docId/comments/:commentId         # Supprimer un commentaire
+POST   /workspaces/:workspaceId/documents/:docId/comments/:commentId/resolve # Résoudre / rouvrir un fil
+```
+
+### Notifications (3 endpoints)
+```bash
+GET    /notifications                          # Lister (filtre unreadOnly, pagination simple)
+POST   /notifications/:notificationId/read     # Marquer une notification comme lue
+POST   /notifications/read-all                 # Tout marquer comme lu
+```
+
+### Tokens personnels (3 endpoints)
+```bash
+GET    /users/me/tokens            # Lister les tokens actifs (id, expiresAt)
+POST   /users/me/tokens            # Créer un token (retourne le secret une seule fois)
+DELETE /users/me/tokens/:tokenId   # Révoquer un token
 ```
 
 ### Workspace (1 endpoint)
@@ -1325,8 +1351,8 @@ L'API utilise les credentials côté serveur (pas d'API keys) :
 
 ### Ce qui est en place (2025-11-07)
 
-- REST : 37+ endpoints (Workspaces, Documents, Blocks, Tags, Edgeless, Copilot Search/Status/Corpus, Historique list/recover).
-- MCP : 41 outils (Copilot + Historique inclus).
+- REST : 48 endpoints (Workspaces, Documents, Blocks, Tags, Edgeless, Copilot, Historique, Commentaires, Notifications, Tokens).
+- MCP : 52 outils (surface complète REST + Commentaires/Notifications/Tokens).
 - Smoke tests :
   - `scripts/run-affine-api-test.ts` – CRUD Markdown + tags.
   - `scripts/run-copilot-embedding-smoke.ts` – embeddings + `/copilot/search` (doc `SxjNhXGckl3oz2RTVUc8p`).
@@ -1334,12 +1360,11 @@ L'API utilise les credentials côté serveur (pas d'API keys) :
 - Documentation utilisateur synchronisée dans AFFiNE (`Affine_API/Documentation/AFFiNE REST API – Guide 2025-11`).
 - Déploiement Dokploy opérationnel (auto-deploy sur `main`).
 
-### Priorité suivante (Phase 3)
+### Priorité suivante (Phase 3b)
 
-1. Commentaires (CRUD + resolve).
-2. Notifications (list/read/read-all).
-3. Tokens personnels (create/list/revoke).
-4. Publication publique + lifecycle workspace + blobs/apply-updates.
+1. Publication publique / révocation des documents.
+2. Lifecycle workspace (create/update/delete) pour provisioner des sandboxes.
+3. Blob storage + `apply_doc_updates` pour les migrations massives.
 
 > Conserver le workflow : helpers client → REST → MCP → script smoke + mise à jour AFFiNE.
 

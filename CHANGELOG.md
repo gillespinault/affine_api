@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-11-08
+
+### Added
+
+- **Commentaires** : 5 endpoints REST (`list/create/update/delete/resolve`) + outils MCP correspondants.
+- **Notifications** : endpoints `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all` + outils MCP pour lire et marquer les alertes.
+- **Tokens personnels** : endpoints `GET|POST|DELETE /users/me/tokens` pour gérer les access tokens AFFiNE.
+- **Client TypeScript** : helpers GraphQL (`listComments`, `createAccessToken`, `listNotifications`, etc.) exportés avec les nouveaux types.
+- **Tests Vitest** : couverture unitaire des helpers collaboration (comments/notifications/tokens).
+
+### Changed
+
+- README, MCP Guide et PRD collaboration mis à jour (nouvelles sections endpoints, outils et roadmap).
+- MCP server passe à 52 outils (ajout commentaires, notifications, tokens).
+
 ## [0.2.0] - 2025-11-05
 
 ### Added - Phase 2: Workspace Navigation API

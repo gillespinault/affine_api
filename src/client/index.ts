@@ -17,6 +17,13 @@ export {
   type WorkspaceIgnoredDoc,
   type WorkspaceEmbeddingFile,
   type DocumentHistoryEntry,
+  type CommentUser,
+  type CommentReply,
+  type DocumentComment,
+  type CommentConnection,
+  type AffineNotification,
+  type NotificationList,
+  type AccessTokenInfo,
 } from './runtime/affine-client.js';
 export { createDocYStructure, nanoid } from './runtime/doc-structure.js';
 export { createDocYStructureFromMarkdown } from './markdown/markdown-to-yjs.js';

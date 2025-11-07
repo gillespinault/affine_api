@@ -263,6 +263,25 @@ function getNumber(
   return value;
 }
 
+function getBoolean(
+  args: Args,
+  key: string,
+  options: { required?: boolean; defaultValue?: boolean } = {},
+): boolean | undefined {
+  if (!(key in args) || args[key] === undefined || args[key] === null) {
+    if (options.required) {
+      throw new Error(`${key} is required and must be a boolean.`);
+    }
+    return options.defaultValue;
+  }
+
+  const value = args[key];
+  if (typeof value !== 'boolean') {
+    throw new Error(`${key} must be a boolean.`);
+  }
+  return value;
+}
+
 function getRecord(
   args: Args,
   key: string,
@@ -305,6 +324,20 @@ function parsePosition(value: unknown): 'start' | 'end' | number | undefined {
   }
 
   throw new Error('position must be "start", "end", or a number.');
+}
+
+function normalizeDocModeInput(value?: string | null): 'Page' | 'Edgeless' | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'page') {
+    return 'Page';
+  }
+  if (normalized === 'edgeless') {
+    return 'Edgeless';
+  }
+  throw new Error('docMode must be either "page" or "edgeless".');
 }
 
 function success(structured: Record<string, unknown>, message?: string): CallToolResult {
@@ -673,6 +706,178 @@ const handleRecoverDocumentVersion: Handler = async args => {
     docId,
     timestamp,
     recovered,
+  });
+};
+
+const handleListComments: Handler = async args => {
+  const workspaceId = getString(args, 'workspaceId', { required: true })!;
+  const docId = getString(args, 'docId', { required: true })!;
+  const first = getNumber(args, 'first', { min: 1, max: 100 });
+  const offset = getNumber(args, 'offset', { min: 0 });
+  const after = getString(args, 'after');
+
+  const affine = await getClient();
+  const comments = await affine.listComments(workspaceId, docId, {
+    first: first ?? undefined,
+    offset: offset ?? undefined,
+    after: after && after.length ? after : undefined,
+  });
+
+  return success({
+    workspaceId,
+    docId,
+    ...comments,
+  });
+};
+
+const handleCreateComment: Handler = async args => {
+  const workspaceId = getString(args, 'workspaceId', { required: true })!;
+  const docId = getString(args, 'docId', { required: true })!;
+  const docTitle = getString(args, 'docTitle');
+  const docMode = normalizeDocModeInput(getString(args, 'docMode'));
+  const mentions = getStringArray(args, 'mentions');
+  const content = (args as Record<string, unknown>).content;
+
+  if (content === undefined) {
+    throw new Error('content is required.');
+  }
+
+  const affine = await getClient();
+  const comment = await affine.createComment(workspaceId, {
+    docId,
+    content,
+    docTitle: docTitle ?? undefined,
+    docMode,
+    mentions: mentions?.length ? mentions : undefined,
+  });
+
+  return success({
+    workspaceId,
+    docId,
+    comment,
+  });
+};
+
+const handleUpdateComment: Handler = async args => {
+  const workspaceId = getString(args, 'workspaceId', { required: true })!;
+  const commentId = getString(args, 'commentId', { required: true })!;
+  const content = (args as Record<string, unknown>).content;
+  if (content === undefined) {
+    throw new Error('content is required.');
+  }
+
+  const affine = await getClient();
+  const updated = await affine.updateComment(commentId, content);
+  return success({
+    workspaceId,
+    commentId,
+    updated,
+  });
+};
+
+const handleDeleteComment: Handler = async args => {
+  const workspaceId = getString(args, 'workspaceId', { required: true })!;
+  const commentId = getString(args, 'commentId', { required: true })!;
+
+  const affine = await getClient();
+  const deleted = await affine.deleteComment(commentId);
+  return success({
+    workspaceId,
+    commentId,
+    deleted,
+  });
+};
+
+const handleResolveComment: Handler = async args => {
+  const workspaceId = getString(args, 'workspaceId', { required: true })!;
+  const commentId = getString(args, 'commentId', { required: true })!;
+  const resolved = getBoolean(args, 'resolved', { defaultValue: true }) ?? true;
+
+  const affine = await getClient();
+  const outcome = await affine.resolveComment(commentId, resolved);
+  return success({
+    workspaceId,
+    commentId,
+    resolved,
+    updated: outcome,
+  });
+};
+
+const handleListNotifications: Handler = async args => {
+  const first = getNumber(args, 'first', { min: 1, max: 100 });
+  const unreadOnly = getBoolean(args, 'unreadOnly');
+
+  const affine = await getClient();
+  const notifications = await affine.listNotifications({
+    first: first ?? undefined,
+    unreadOnly: unreadOnly ?? undefined,
+  });
+
+  return success({
+    ...notifications,
+  });
+};
+
+const handleReadNotification: Handler = async args => {
+  const notificationId = getString(args, 'notificationId', { required: true })!;
+  const affine = await getClient();
+  const updated = await affine.markNotificationRead(notificationId);
+  return success({
+    notificationId,
+    read: updated,
+  });
+};
+
+const handleReadAllNotifications: Handler = async () => {
+  const affine = await getClient();
+  const updated = await affine.markAllNotificationsRead();
+  return success({
+    updated,
+  });
+};
+
+const handleListAccessTokens: Handler = async () => {
+  const affine = await getClient();
+  const tokens = await affine.listAccessTokens();
+  return success({
+    count: tokens.length,
+    tokens,
+  });
+};
+
+const handleCreateAccessToken: Handler = async args => {
+  const name = getString(args, 'name', { required: true })!;
+  const rawExpires = (args as Record<string, unknown>).expiresAt;
+
+  let expiresAt: string | null | undefined;
+  if (rawExpires === null) {
+    expiresAt = null;
+  } else if (rawExpires === undefined) {
+    expiresAt = undefined;
+  } else if (typeof rawExpires === 'string') {
+    const trimmed = rawExpires.trim();
+    if (!trimmed) {
+      throw new Error('expiresAt cannot be empty.');
+    }
+    expiresAt = trimmed;
+  } else {
+    throw new Error('expiresAt must be a string or null.');
+  }
+
+  const affine = await getClient();
+  const token = await affine.createAccessToken({ name, expiresAt });
+  return success({
+    token,
+  });
+};
+
+const handleDeleteAccessToken: Handler = async args => {
+  const tokenId = getString(args, 'tokenId', { required: true })!;
+  const affine = await getClient();
+  const revoked = await affine.revokeAccessToken(tokenId);
+  return success({
+    tokenId,
+    revoked,
   });
 };
 
@@ -1306,6 +1511,113 @@ const toolDefinitions: ToolDefinition[] = [
     ),
     handleRecoverDocumentVersion,
   ),
+
+  // Comments
+  makeTool(
+    'list_comments',
+    'List Comments',
+    'List comments (and replies) for a document.',
+    docSchema({
+      first: {
+        type: 'number',
+        minimum: 1,
+        maximum: 100,
+        description: 'Maximum number of comments to return.',
+      },
+      offset: {
+        type: 'number',
+        minimum: 0,
+        description: 'Offset to start listing from.',
+      },
+      after: {
+        type: 'string',
+        description: 'Cursor for pagination.',
+      },
+    }),
+    handleListComments,
+  ),
+  makeTool(
+    'create_comment',
+    'Create Comment',
+    'Create a comment on a document.',
+    docSchema(
+      {
+        docTitle: {
+          type: 'string',
+          description: 'Optional document title for notification context.',
+        },
+        docMode: {
+          type: 'string',
+          enum: ['page', 'edgeless', 'Page', 'Edgeless'],
+          description: 'Document mode (Page or Edgeless).',
+        },
+        content: {
+          type: ['object', 'string'],
+          description: 'Comment payload (rich text delta or plain string).',
+        },
+        mentions: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'User IDs to mention.',
+        },
+      },
+      ['content'],
+    ),
+    handleCreateComment,
+  ),
+  makeTool(
+    'update_comment',
+    'Update Comment',
+    'Update an existing comment.',
+    workspaceSchema(
+      {
+        commentId: {
+          type: 'string',
+          description: 'Identifier of the comment to update.',
+        },
+        content: {
+          type: ['object', 'string'],
+          description: 'Replacement content for the comment.',
+        },
+      },
+      ['commentId', 'content'],
+    ),
+    handleUpdateComment,
+  ),
+  makeTool(
+    'delete_comment',
+    'Delete Comment',
+    'Delete a comment by identifier.',
+    workspaceSchema(
+      {
+        commentId: {
+          type: 'string',
+          description: 'Identifier of the comment to delete.',
+        },
+      },
+      ['commentId'],
+    ),
+    handleDeleteComment,
+  ),
+  makeTool(
+    'resolve_comment',
+    'Resolve Comment',
+    'Resolve or reopen a comment thread.',
+    workspaceSchema(
+      {
+        commentId: {
+          type: 'string',
+          description: 'Identifier of the comment to resolve.',
+        },
+        resolved: {
+          type: 'boolean',
+          description: 'True to resolve, false to reopen (default true).',
+        },
+      },
+      ['commentId'],
+    ),
+    handleResolveComment,
+  ),
   makeTool(
     'copilot_search',
     'Copilot Semantic Search',
@@ -1654,6 +1966,101 @@ const toolDefinitions: ToolDefinition[] = [
       ['tagId'],
     ),
     handleDeleteTag,
+  ),
+
+  // Notifications
+  makeTool(
+    'list_notifications',
+    'List Notifications',
+    'List recent AFFiNE notifications for the current user.',
+    {
+      type: 'object',
+      properties: {
+        first: {
+          type: 'number',
+          minimum: 1,
+          maximum: 100,
+          description: 'Maximum number of notifications to fetch.',
+        },
+        unreadOnly: {
+          type: 'boolean',
+          description: 'Filter to unread notifications only.',
+        },
+      },
+      additionalProperties: false,
+    },
+    handleListNotifications,
+  ),
+  makeTool(
+    'read_notification',
+    'Mark Notification Read',
+    'Mark a notification as read.',
+    {
+      type: 'object',
+      properties: {
+        notificationId: {
+          type: 'string',
+          description: 'Notification identifier.',
+        },
+      },
+      required: ['notificationId'],
+      additionalProperties: false,
+    },
+    handleReadNotification,
+  ),
+  makeTool(
+    'read_all_notifications',
+    'Mark All Notifications Read',
+    'Mark every notification as read.',
+    EMPTY_SCHEMA,
+    handleReadAllNotifications,
+  ),
+
+  // Access tokens
+  makeTool(
+    'list_access_tokens',
+    'List Access Tokens',
+    'List personal access tokens for the current user.',
+    EMPTY_SCHEMA,
+    handleListAccessTokens,
+  ),
+  makeTool(
+    'create_access_token',
+    'Create Access Token',
+    'Generate a personal access token (returns the token string).',
+    {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Friendly token name.',
+        },
+        expiresAt: {
+          oneOf: [{ type: 'string' }, { type: 'null' }],
+          description: 'Optional ISO8601 expiration date.',
+        },
+      },
+      required: ['name'],
+      additionalProperties: false,
+    },
+    handleCreateAccessToken,
+  ),
+  makeTool(
+    'revoke_access_token',
+    'Revoke Access Token',
+    'Revoke a personal access token by identifier.',
+    {
+      type: 'object',
+      properties: {
+        tokenId: {
+          type: 'string',
+          description: 'Identifier of the token to revoke.',
+        },
+      },
+      required: ['tokenId'],
+      additionalProperties: false,
+    },
+    handleDeleteAccessToken,
   ),
 
   // Workspace meta

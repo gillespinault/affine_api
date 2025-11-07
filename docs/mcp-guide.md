@@ -2,8 +2,8 @@
 
 | Champ | Détail |
 |-------|--------|
-| Version | 0.1.0 |
-| Date | 2025-11-06 |
+| Version | 0.2.0 |
+| Date | 2025-11-08 |
 | Statut | Production |
 | Auteur | ServerLab Team |
 
@@ -23,7 +23,7 @@
 
 ## 1. Introduction
 
-Le **serveur MCP AFFiNE Notebooks** expose 41 outils via le protocole [Model Context Protocol](https://modelcontextprotocol.io) pour permettre aux agents IA (Claude Code, Claude Desktop, Cline, etc.) de manipuler programmatiquement des workspaces, documents, blocs, dossiers, tags, éléments Edgeless, embeddings Copilot et historique des documents dans AFFiNE.
+Le **serveur MCP AFFiNE Notebooks** expose 52 outils via le protocole [Model Context Protocol](https://modelcontextprotocol.io) pour permettre aux agents IA (Claude Code, Claude Desktop, Cline, etc.) de manipuler programmatiquement des workspaces, documents, blocs, dossiers, tags, éléments Edgeless, embeddings Copilot, historique des documents ainsi que les commentaires, notifications et tokens AFFiNE.
 
 ### Différences avec affine-mcp-server (DAWNCR0W)
 
@@ -129,7 +129,7 @@ Le serveur MCP sera compilé dans \`dist/mcp/start.js\` avec le binaire \`bin/af
 
 ---
 
-## 4. Liste des outils MCP (41 outils)
+## 4. Liste des outils MCP (52 outils)
 
 ### 4.1 Health (1 outil)
 
@@ -199,6 +199,26 @@ Le serveur MCP sera compilé dans \`dist/mcp/start.js\` avec le binaire \`bin/af
 - **\`list_document_history\`** : Lister les versions disponibles pour un document (id, timestamp, auteur).
 - **\`recover_document_version\`** : Restaurer un document à partir d’un timestamp issu de l’historique.
 
+### 4.11 Commentaires (5 outils)
+
+- **\`list_comments\`** : Récupérer les commentaires et replies d’un document (pagination + cursors).
+- **\`create_comment\`** : Créer un commentaire (mode Page/Edgeless, mentions d’utilisateurs).
+- **\`update_comment\`** : Mettre à jour le contenu d’un commentaire.
+- **\`delete_comment\`** : Supprimer un commentaire.
+- **\`resolve_comment\`** : Résoudre ou rouvrir un fil.
+
+### 4.12 Notifications (3 outils)
+
+- **\`list_notifications\`** : Lister les notifications utilisateur (option \`unreadOnly\`).
+- **\`read_notification\`** : Marquer une notification comme lue.
+- **\`read_all_notifications\`** : Tout marquer comme lu.
+
+### 4.13 Tokens personnels (3 outils)
+
+- **\`list_access_tokens\`** : Inventorier les tokens personnels actifs.
+- **\`create_access_token\`** : Générer un token (le secret n’est renvoyé qu’une seule fois).
+- **\`revoke_access_token\`** : Révoquer un token via son identifiant.
+
 Voir documentation complète de chaque outil dans le guide complet.
 
 ---
@@ -217,6 +237,12 @@ Voir documentation complète de chaque outil dans le guide complet.
 2. \`update_document(primaryMode="edgeless")\`
 3. \`create_edgeless_element(element={type:"shape", shapeType:"rect", xywh:[100,100,200,100], text:"Start"})\`
 4. \`create_edgeless_element(element={type:"connector", sourceId:"shape-1", targetId:"shape-2"})\`
+
+### Boucler un fil de commentaires
+
+1. \`list_comments(workspaceId="...", docId="...")\` → récupérer l'ID du fil.
+2. \`resolve_comment(commentId="...", resolved=true)\` → marquer comme traité.
+3. \`list_notifications(unreadOnly=true)\` puis \`read_notification()\` pour confirmer la levée de l'alerte.
 
 ---
 
@@ -273,4 +299,4 @@ node /path/to/bin/affine-mcp.js
 
 ---
 
-**Version** : 0.1.0 | **Dernière mise à jour** : 2025-11-06 | **Statut** : ✅ Production
+**Version** : 0.2.0 | **Dernière mise à jour** : 2025-11-08 | **Statut** : ✅ Production

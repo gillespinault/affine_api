@@ -144,6 +144,61 @@ export interface TagInfo {
   count: number;
 }
 
+export interface CommentUser {
+  id: string;
+  name: string | null;
+  avatarUrl: string | null;
+}
+
+export interface CommentReply {
+  id: string;
+  content: unknown;
+  createdAt: string;
+  updatedAt: string;
+  user: CommentUser | null;
+}
+
+export interface DocumentComment extends CommentReply {
+  resolved: boolean;
+  replies: CommentReply[];
+}
+
+export interface CommentConnection {
+  totalCount: number;
+  pageInfo: {
+    hasNextPage: boolean;
+    endCursor: string | null;
+  };
+  comments: DocumentComment[];
+}
+
+export interface AffineNotification {
+  id: string;
+  type: string | null;
+  title: string | null;
+  body: string | null;
+  read: boolean;
+  createdAt: string;
+}
+
+export interface NotificationList {
+  totalCount: number;
+  pageInfo: {
+    hasNextPage: boolean;
+    endCursor: string | null;
+  };
+  notifications: AffineNotification[];
+  unreadCount: number;
+}
+
+export interface AccessTokenInfo {
+  id: string;
+  name: string;
+  createdAt: string;
+  expiresAt: string | null;
+  token?: string | null;
+}
+
 export function parseSetCookies(headers: Array<string | undefined> = []) {
   const jar = new Map<string, string>();
   for (const header of headers) {
@@ -2552,6 +2607,360 @@ export class AffineClient {
       recoverDoc: boolean;
     }>(query, { workspaceId, docId, timestamp });
     return result.recoverDoc;
+  }
+
+  // ============================================================================
+  // Collaboration API (comments, notifications, tokens)
+  // ============================================================================
+
+  async listComments(
+    workspaceId: string,
+    docId: string,
+    options: { first?: number; offset?: number; after?: string } = {},
+  ): Promise<CommentConnection> {
+    const pagination: Record<string, unknown> = {};
+    if (typeof options.first === 'number' && Number.isFinite(options.first)) {
+      pagination.first = options.first;
+    }
+    if (typeof options.offset === 'number' && Number.isFinite(options.offset)) {
+      pagination.offset = options.offset;
+    }
+    const trimmedAfter = options.after?.trim();
+    if (trimmedAfter) {
+      pagination.after = trimmedAfter;
+    }
+
+    const query = `
+      query listComments(
+        $workspaceId: String!
+        $docId: String!
+        $pagination: PaginationInput
+      ) {
+        workspace(id: $workspaceId) {
+          comments(docId: $docId, pagination: $pagination) {
+            totalCount
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+            edges {
+              cursor
+              node {
+                id
+                content
+                createdAt
+                updatedAt
+                resolved
+                user {
+                  id
+                  name
+                  avatarUrl
+                }
+                replies {
+                  id
+                  content
+                  createdAt
+                  updatedAt
+                  user {
+                    id
+                    name
+                    avatarUrl
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const variables: Record<string, unknown> = {
+      workspaceId,
+      docId,
+    };
+    if (Object.keys(pagination).length > 0) {
+      variables.pagination = pagination;
+    }
+
+    const result = await this.graphqlQuery<{
+      workspace: {
+        comments: {
+          totalCount: number;
+          pageInfo: { hasNextPage: boolean; endCursor: string | null };
+          edges: Array<{ node: DocumentComment | null }>;
+        };
+      } | null;
+    }>(query, variables);
+
+    const connection = result.workspace?.comments;
+    if (!connection) {
+      return {
+        totalCount: 0,
+        pageInfo: { hasNextPage: false, endCursor: null },
+        comments: [],
+      };
+    }
+
+    const comments = connection.edges
+      .map(edge => edge.node)
+      .filter((node): node is DocumentComment => Boolean(node));
+
+    return {
+      totalCount: connection.totalCount,
+      pageInfo: connection.pageInfo,
+      comments,
+    };
+  }
+
+  async createComment(
+    workspaceId: string,
+    input: {
+      docId: string;
+      content: unknown;
+      docTitle?: string;
+      docMode?: 'Page' | 'Edgeless';
+      mentions?: string[];
+    },
+  ): Promise<DocumentComment> {
+    const query = `
+      mutation createComment($input: CommentCreateInput!) {
+        createComment(input: $input) {
+          id
+          content
+          createdAt
+          updatedAt
+          resolved
+          user {
+            id
+            name
+            avatarUrl
+          }
+          replies {
+            id
+            content
+            createdAt
+            updatedAt
+            user {
+              id
+              name
+              avatarUrl
+            }
+          }
+        }
+      }
+    `;
+
+    const payload = {
+      workspaceId,
+      docId: input.docId,
+      content: input.content,
+      docTitle: input.docTitle ?? '',
+      docMode: input.docMode ?? 'Page',
+      mentions: input.mentions,
+    };
+
+    const result = await this.graphqlQuery<{
+      createComment: DocumentComment;
+    }>(query, { input: payload });
+    return result.createComment;
+  }
+
+  async updateComment(commentId: string, content: unknown): Promise<boolean> {
+    const query = `
+      mutation updateComment($input: CommentUpdateInput!) {
+        updateComment(input: $input)
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      updateComment: boolean;
+    }>(query, { input: { id: commentId, content } });
+    return result.updateComment;
+  }
+
+  async deleteComment(commentId: string): Promise<boolean> {
+    const query = `
+      mutation deleteComment($id: String!) {
+        deleteComment(id: $id)
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      deleteComment: boolean;
+    }>(query, { id: commentId });
+    return result.deleteComment;
+  }
+
+  async resolveComment(commentId: string, resolved: boolean): Promise<boolean> {
+    const query = `
+      mutation resolveComment($input: CommentResolveInput!) {
+        resolveComment(input: $input)
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      resolveComment: boolean;
+    }>(query, { input: { id: commentId, resolved } });
+    return result.resolveComment;
+  }
+
+  async listNotifications(options: {
+    first?: number;
+    offset?: number;
+    unreadOnly?: boolean;
+  } = {}): Promise<NotificationList> {
+    const limit =
+      typeof options.first === 'number' && Number.isFinite(options.first)
+        ? options.first
+        : 20;
+    const offset =
+      typeof options.offset === 'number' && Number.isFinite(options.offset)
+        ? options.offset
+        : 0;
+
+    const query = `
+      query listNotifications($pagination: PaginationInput!) {
+        currentUser {
+          notifications(pagination: $pagination) {
+            edges {
+              node {
+                id
+                type
+                read
+                createdAt
+              }
+            }
+            totalCount
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+          }
+        }
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      currentUser: {
+        notifications: {
+          edges: Array<{ node: AffineNotification | null }>;
+          totalCount: number;
+          pageInfo: { hasNextPage: boolean; endCursor: string | null };
+        };
+      } | null;
+    }>(query, {
+      pagination: {
+        first: limit,
+        offset,
+      },
+    });
+
+    const connection = result.currentUser?.notifications;
+    if (!connection) {
+      return {
+        totalCount: 0,
+        pageInfo: { hasNextPage: false, endCursor: null },
+        notifications: [],
+        unreadCount: 0,
+      };
+    }
+
+    const nodes = connection.edges
+      .map(edge => edge.node)
+      .filter((node): node is AffineNotification => Boolean(node));
+
+    const filtered = options.unreadOnly ? nodes.filter(entry => !entry.read) : nodes;
+
+    return {
+      totalCount: connection.totalCount,
+      pageInfo: connection.pageInfo,
+      notifications: filtered,
+      unreadCount: nodes.filter(entry => !entry.read).length,
+    };
+  }
+
+  async markNotificationRead(notificationId: string): Promise<boolean> {
+    const query = `
+      mutation readNotification($id: String!) {
+        readNotification(id: $id)
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      readNotification: boolean;
+    }>(query, { id: notificationId });
+    return result.readNotification;
+  }
+
+  async markAllNotificationsRead(): Promise<boolean> {
+    const query = `
+      mutation readAllNotifications {
+        readAllNotifications
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      readAllNotifications: boolean;
+    }>(query);
+    return result.readAllNotifications;
+  }
+
+  async listAccessTokens(): Promise<AccessTokenInfo[]> {
+    const query = `
+      query listAccessTokens {
+        accessTokens {
+          id
+          name
+          createdAt
+          expiresAt
+        }
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      accessTokens: AccessTokenInfo[] | null;
+    }>(query);
+    return result.accessTokens ?? [];
+  }
+
+  async createAccessToken(input: {
+    name: string;
+    expiresAt?: string | null;
+  }): Promise<AccessTokenInfo> {
+    const query = `
+      mutation generateAccessToken($input: GenerateAccessTokenInput!) {
+        generateUserAccessToken(input: $input) {
+          id
+          name
+          createdAt
+          expiresAt
+          token
+        }
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      generateUserAccessToken: AccessTokenInfo;
+    }>(query, {
+      input: {
+        name: input.name,
+        expiresAt: input.expiresAt ?? null,
+      },
+    });
+    return result.generateUserAccessToken;
+  }
+
+  async revokeAccessToken(tokenId: string): Promise<boolean> {
+    const query = `
+      mutation revokeAccessToken($id: String!) {
+        revokeUserAccessToken(id: $id)
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      revokeUserAccessToken: boolean;
+    }>(query, { id: tokenId });
+    return result.revokeUserAccessToken;
   }
 
   /**

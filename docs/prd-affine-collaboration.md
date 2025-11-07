@@ -18,6 +18,8 @@
 | 2 | **Historique & recovery** | Listing des versions, restore ciblé, métriques idempotentes. | Script d’intégration qui crée un doc, le modifie 3×, restaure `v1` et vérifie le contenu via API. |
 | 3 | **Autres chantiers fonctionnels** | Workspace lifecycle, publication publique, commentaires, notifications, tokens, blobs/apply updates. | Chaque livraison crée/annote des docs de test dans le même workspace/folder, résultats tracés dans `docs/api-test-guide.md`. |
 
+> **Mise à jour 2025-11-08** : Commentaires, notifications et tokens personnels sont livrés (REST + MCP). Le scope restant se concentre sur publication publique, lifecycle workspace et blob/apply updates.
+
 Chaque priorité ajoute des endpoints REST, les miroirs MCP et un guide d’usage. Les jobs de validation utilisent uniquement l’API notebooks (pas d’action manuelle) et laissent une trace dans AFFiNE pour audit.
 
 ## 1. Contexte & Problème

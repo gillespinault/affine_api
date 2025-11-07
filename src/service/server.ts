@@ -13,6 +13,8 @@ type DocumentPayload = {
   primaryMode?: 'page' | 'edgeless';
 };
 
+type CommentMode = 'Page' | 'Edgeless';
+
 export interface CredentialProvider {
   getCredentials(workspaceId: string): Promise<{ email: string; password: string }>;
 }
@@ -54,6 +56,54 @@ function normalizeTags(value: unknown): string[] | undefined {
     .map(tag => tag.trim())
     .filter(tag => tag.length > 0);
   return tags;
+}
+
+function normalizeCommentMode(value: unknown): CommentMode | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'page') {
+    return 'Page';
+  }
+  if (normalized === 'edgeless') {
+    return 'Edgeless';
+  }
+  return undefined;
+}
+
+function sanitizeMentions(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const mentions = value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map(entry => entry.trim())
+    .filter(entry => entry.length > 0);
+
+  if (!mentions.length) {
+    return [];
+  }
+  return Array.from(new Set(mentions));
+}
+
+function parseBooleanInput(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) {
+      return undefined;
+    }
+    if (['true', '1', 'yes', 'y'].includes(normalized)) {
+      return true;
+    }
+    if (['false', '0', 'no', 'n'].includes(normalized)) {
+      return false;
+    }
+  }
+  return undefined;
 }
 
 function decodeBase64Payload(value: string): Buffer {
@@ -420,6 +470,208 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
   );
 
   // ============================================================================
+  // Collaboration: Comments
+  // ============================================================================
+
+  app.get(
+    '/workspaces/:workspaceId/documents/:docId/comments',
+    async (request, reply) => {
+      const { workspaceId, docId } = request.params as {
+        workspaceId: string;
+        docId: string;
+      };
+      const { first, offset, after } = request.query as {
+        first?: string;
+        offset?: string;
+        after?: string;
+      };
+
+      const limit = first ? Number.parseInt(first, 10) : undefined;
+      const skip = offset ? Number.parseInt(offset, 10) : undefined;
+      const cursor =
+        typeof after === 'string' && after.trim().length > 0 ? after.trim() : undefined;
+
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+      const client = createClient(config);
+
+      try {
+        await client.signIn(email, password);
+        const result = await client.listComments(workspaceId, docId, {
+          first: Number.isFinite(limit) ? limit : undefined,
+          offset: Number.isFinite(skip) ? skip : undefined,
+          after: cursor,
+        });
+        reply.send({
+          workspaceId,
+          docId,
+          totalCount: result.totalCount,
+          pageInfo: result.pageInfo,
+          comments: result.comments,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        reply.code(500).send({ error: message });
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
+  app.post(
+    '/workspaces/:workspaceId/documents/:docId/comments',
+    async (request, reply) => {
+      const { workspaceId, docId } = request.params as {
+        workspaceId: string;
+        docId: string;
+      };
+      const body = (request.body ?? {}) as {
+        content?: unknown;
+        docTitle?: string;
+        docMode?: string;
+        mentions?: unknown;
+      };
+
+      if (body.content === undefined) {
+        reply.code(400).send({ error: 'content is required' });
+        return;
+      }
+
+      if (body.mentions !== undefined && !Array.isArray(body.mentions)) {
+        reply.code(400).send({ error: 'mentions must be an array of user IDs' });
+        return;
+      }
+
+      const docTitle = typeof body.docTitle === 'string' ? body.docTitle : undefined;
+      const docMode = normalizeCommentMode(body.docMode);
+      if (body.docMode !== undefined && !docMode) {
+        reply.code(400).send({ error: 'docMode must be either "page" or "edgeless"' });
+        return;
+      }
+      const mentions = sanitizeMentions(body.mentions);
+
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+      const client = createClient(config);
+
+      try {
+        await client.signIn(email, password);
+        const comment = await client.createComment(workspaceId, {
+          docId,
+          content: body.content,
+          docTitle,
+          docMode,
+          mentions: mentions && mentions.length > 0 ? mentions : undefined,
+        });
+        reply.code(201).send(comment);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        reply.code(500).send({ error: message });
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
+  app.patch(
+    '/workspaces/:workspaceId/documents/:docId/comments/:commentId',
+    async (request, reply) => {
+      const { workspaceId, commentId } = request.params as {
+        workspaceId: string;
+        docId: string;
+        commentId: string;
+      };
+      const body = (request.body ?? {}) as { content?: unknown };
+
+      if (body.content === undefined) {
+        reply.code(400).send({ error: 'content is required' });
+        return;
+      }
+
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+      const client = createClient(config);
+
+      try {
+        await client.signIn(email, password);
+        const updated = await client.updateComment(commentId, body.content);
+        if (!updated) {
+          reply.code(404).send({ error: 'comment not found' });
+          return;
+        }
+
+        reply.send({ id: commentId, updated: true });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        reply.code(500).send({ error: message });
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
+  app.delete(
+    '/workspaces/:workspaceId/documents/:docId/comments/:commentId',
+    async (request, reply) => {
+      const { workspaceId, commentId } = request.params as {
+        workspaceId: string;
+        docId: string;
+        commentId: string;
+      };
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+      const client = createClient(config);
+
+      try {
+        await client.signIn(email, password);
+        const deleted = await client.deleteComment(commentId);
+        if (!deleted) {
+          reply.code(404).send({ error: 'comment not found' });
+          return;
+        }
+        reply.code(204).send();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        reply.code(500).send({ error: message });
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
+  app.post(
+    '/workspaces/:workspaceId/documents/:docId/comments/:commentId/resolve',
+    async (request, reply) => {
+      const { workspaceId, commentId } = request.params as {
+        workspaceId: string;
+        docId: string;
+        commentId: string;
+      };
+      const body = (request.body ?? {}) as { resolved?: unknown };
+      const resolvedInput =
+        body.resolved === undefined ? true : parseBooleanInput(body.resolved);
+      if (resolvedInput === undefined) {
+        reply.code(400).send({ error: 'resolved must be a boolean' });
+        return;
+      }
+
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+      const client = createClient(config);
+
+      try {
+        await client.signIn(email, password);
+        const outcome = await client.resolveComment(commentId, resolvedInput);
+        if (!outcome) {
+          reply.code(404).send({ error: 'comment not found' });
+          return;
+        }
+        reply.send({ id: commentId, resolved: resolvedInput });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        reply.code(500).send({ error: message });
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
+  // ============================================================================
   // Workspace Navigation Endpoints
   // ============================================================================
 
@@ -738,6 +990,178 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
         deleted: true,
         documentsUpdated: result.documentsUpdated,
       });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  // ============================================================================
+  // Notifications
+  // ============================================================================
+
+  app.get('/notifications', async (request, reply) => {
+    const { first, unreadOnly } = request.query as {
+      first?: string;
+      unreadOnly?: string;
+    };
+
+    const limit = first ? Number.parseInt(first, 10) : undefined;
+    const unreadFlag =
+      unreadOnly !== undefined ? parseBooleanInput(unreadOnly) : undefined;
+    if (unreadOnly !== undefined && unreadFlag === undefined) {
+      reply.code(400).send({ error: 'unreadOnly must be a boolean' });
+      return;
+    }
+
+    const { email, password } = await credentialProvider.getCredentials('default');
+    const client = createClient(config);
+
+    try {
+      await client.signIn(email, password);
+      const notifications = await client.listNotifications({
+        first: Number.isFinite(limit) ? limit : undefined,
+        unreadOnly: unreadFlag,
+      });
+      reply.send(notifications);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  app.post('/notifications/:notificationId/read', async (request, reply) => {
+    const { notificationId } = request.params as { notificationId: string };
+    const id = notificationId?.trim();
+    if (!id) {
+      reply.code(400).send({ error: 'notificationId is required' });
+      return;
+    }
+
+    const { email, password } = await credentialProvider.getCredentials('default');
+    const client = createClient(config);
+
+    try {
+      await client.signIn(email, password);
+      const updated = await client.markNotificationRead(id);
+      if (!updated) {
+        reply.code(404).send({ error: 'notification not found' });
+        return;
+      }
+      reply.send({ notificationId: id, read: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  app.post('/notifications/read-all', async (_request, reply) => {
+    const { email, password } = await credentialProvider.getCredentials('default');
+    const client = createClient(config);
+
+    try {
+      await client.signIn(email, password);
+      const updated = await client.markAllNotificationsRead();
+      reply.send({ updated });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  // ============================================================================
+  // Personal Access Tokens
+  // ============================================================================
+
+  app.get('/users/me/tokens', async (_request, reply) => {
+    const { email, password } = await credentialProvider.getCredentials('default');
+    const client = createClient(config);
+
+    try {
+      await client.signIn(email, password);
+      const tokens = await client.listAccessTokens();
+      reply.send({ count: tokens.length, tokens });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  app.post('/users/me/tokens', async (request, reply) => {
+    const body = (request.body ?? {}) as {
+      name?: string;
+      expiresAt?: string | null;
+    };
+    if (typeof body.name !== 'string' || body.name.trim().length === 0) {
+      reply.code(400).send({ error: 'name is required' });
+      return;
+    }
+    const trimmedName = body.name.trim();
+
+    let expiresAt: string | null | undefined;
+    if (body.expiresAt === null) {
+      expiresAt = null;
+    } else if (body.expiresAt === undefined) {
+      expiresAt = undefined;
+    } else if (typeof body.expiresAt === 'string') {
+      const trimmed = body.expiresAt.trim();
+      if (!trimmed) {
+        reply.code(400).send({ error: 'expiresAt cannot be empty' });
+        return;
+      }
+      expiresAt = trimmed;
+    } else {
+      reply.code(400).send({ error: 'expiresAt must be a string or null' });
+      return;
+    }
+
+    const { email, password } = await credentialProvider.getCredentials('default');
+    const client = createClient(config);
+
+    try {
+      await client.signIn(email, password);
+      const token = await client.createAccessToken({
+        name: trimmedName,
+        expiresAt,
+      });
+      reply.code(201).send(token);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  app.delete('/users/me/tokens/:tokenId', async (request, reply) => {
+    const { tokenId } = request.params as { tokenId: string };
+    const id = tokenId?.trim();
+    if (!id) {
+      reply.code(400).send({ error: 'tokenId is required' });
+      return;
+    }
+
+    const { email, password } = await credentialProvider.getCredentials('default');
+    const client = createClient(config);
+
+    try {
+      await client.signIn(email, password);
+      const revoked = await client.revokeAccessToken(id);
+      if (!revoked) {
+        reply.code(404).send({ error: 'token not found' });
+        return;
+      }
+      reply.code(204).send();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
     } finally {
       await client.disconnect();
     }
