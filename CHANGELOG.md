@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2025-11-07
+
+### Added
+
+- Publication publique : `POST /workspaces/:workspaceId/documents/:docId/publish` et `/revoke` côté REST + MCP (`publish_document`, `revoke_document`).
+- Helpers client (`publishDocument`, `revokeDocumentPublication`) avec nouveaux scripts smoke (`tools/run-publication-smoke.mjs`, `tools/run-live-publication-smoke.mjs`).
+- Script `tools/run-collaboration-smoke.mjs` référencé dans le guide de tests pour valider commentaires/notifications/tokens via REST.
+
+### Changed
+
+- GraphQL `listNotifications` reflète désormais le schéma production (pagination `PaginationInput` + `edges`).
+- Documentation (README, MCP guide, PRD) + page AFFiNE mise à jour avec la surface publication.
+
 ## [0.3.0] - 2025-11-08
 
 ### Added

@@ -803,6 +803,41 @@ const handleResolveComment: Handler = async args => {
   });
 };
 
+const handlePublishDocument: Handler = async args => {
+  const workspaceId = getString(args, 'workspaceId', { required: true })!;
+  const docId = getString(args, 'docId', { required: true })!;
+  const rawMode = getString(args, 'mode');
+  const mode = rawMode ? normalizeDocModeInput(rawMode) : undefined;
+  if (rawMode && !mode) {
+    throw new Error('mode must be either "page" or "edgeless".');
+  }
+
+  const affine = await getClient();
+  const result = await affine.publishDocument(workspaceId, docId, {
+    mode,
+  });
+  return success({
+    workspaceId,
+    docId: result.docId,
+    public: result.public,
+    mode: result.mode,
+  });
+};
+
+const handleRevokeDocument: Handler = async args => {
+  const workspaceId = getString(args, 'workspaceId', { required: true })!;
+  const docId = getString(args, 'docId', { required: true })!;
+
+  const affine = await getClient();
+  const result = await affine.revokeDocumentPublication(workspaceId, docId);
+  return success({
+    workspaceId,
+    docId: result.docId,
+    public: result.public,
+    mode: result.mode,
+  });
+};
+
 const handleListNotifications: Handler = async args => {
   const first = getNumber(args, 'first', { min: 1, max: 100 });
   const unreadOnly = getBoolean(args, 'unreadOnly');
@@ -1617,6 +1652,28 @@ const toolDefinitions: ToolDefinition[] = [
       ['commentId'],
     ),
     handleResolveComment,
+  ),
+  makeTool(
+    'publish_document',
+    'Publish Document',
+    'Make a document publicly accessible.',
+    docSchema(
+      {
+        mode: {
+          type: 'string',
+          enum: ['page', 'edgeless'],
+          description: 'Optional mode for public rendering (default: page).',
+        },
+      },
+    ),
+    handlePublishDocument,
+  ),
+  makeTool(
+    'revoke_document',
+    'Revoke Document',
+    'Revoke public access for a document.',
+    docSchema(),
+    handleRevokeDocument,
   ),
   makeTool(
     'copilot_search',

@@ -66,6 +66,63 @@ Ce script prouve l'intégration bout en bout Copilot/Embeddings sans dépendre d
 
 La sortie JSON inclut la liste des `historyEntries`, le timestamp restauré et un booléen `restoredMatches` qui doit être `true` pour valider la réussite.
 
+## Collaboration Smoke Test (REST Dokploy)
+
+- **Path**: `tools/run-collaboration-smoke.mjs`
+- **Execution**:
+  ```bash
+  node tools/run-collaboration-smoke.mjs
+  ```
+- **Scénario** :
+  1. Frappe l’API REST déployée (`https://affine-api.robotsinlove.be`) pour lister les workspaces et garantir la présence du dossier `Affine_API/Tests API`.
+  2. Crée un document Markdown éphémère avec un token unique et l’étiquette `collab-smoke`.
+  3. Exerce le flux complet des commentaires via REST : création, patch, resolve/unresolve, list, puis suppression du commentaire.
+  4. Appelle `GET /notifications?unreadOnly=true` et `POST /notifications/read-all` pour vérifier la surface notifications.
+  5. Crée puis révoque un token personnel via `/users/me/tokens`, ce qui confirme le CRUD des tokens.
+  6. Supprime le document pour garder l’environnement propre.
+
+La sortie JSON inclut toutes les IDs manipulées (docId, commentId, tokenId) et les objets de réponse bruts pour les notifications/access tokens (facile à tracer dans les logs Fastify).
+
+> **Notes** : Ce script n’a pas besoin des credentials AFFiNE car il tape la façade REST Dokploy. Assurez-vous que la version déployée contient bien les endpoints `/comments`, `/notifications` et `/users/me/tokens` (v0.3.0+).
+
+## Collaboration Smoke Test (Client direct)
+
+- **Path**: `tools/run-live-collaboration-smoke.mjs`
+- **Execution**:
+  ```bash
+  AFFINE_EMAIL=<email> AFFINE_PASSWORD=<password> \
+    AFFINE_KEEP_TEST_DOC=1 \
+    node tools/run-live-collaboration-smoke.mjs
+  ```
+- **Scénario** :
+  1. Utilise `AffineClient` pour se connecter directement à l’instance AFFiNE (`Robots in Love`) et garantir le dossier `Affine_API/Tests API`.
+  2. Crée une page Markdown riche, appliquant un token unique (`live-collab-...`) pour l’audit.
+  3. Exécute le cycle complet des commentaires via GraphQL/Socket (`createComment`, `updateComment`, `resolveComment`, `deleteComment`) et capture le résultat de `listComments`.
+  4. Appelle `listNotifications`, `markAllNotificationsRead`, puis `listNotifications` à nouveau pour vérifier le compteur `unreadCount`.
+  5. Crée un token personnel via `createAccessToken`, vérifie sa présence, puis le révoque.
+  6. Optionnel : si `AFFINE_KEEP_TEST_DOC=1`, conserve la page (sinon elle est supprimée à la fin).
+
+La sortie JSON récapitule les IDs (doc, commentaire, token) ainsi que les compteurs notifications avant/après. Laisser `AFFINE_KEEP_TEST_DOC=1` permet de garder une trace permanente dans `Affine_API/Tests API` pour les revues produit.
+
+## Publication Smoke Test (REST Dokploy)
+
+- **Path**: `tools/run-publication-smoke.mjs`
+- **Execution**:
+  ```bash
+  node tools/run-publication-smoke.mjs
+  ```
+- **Scénario** : Crée un document dans `Affine_API/Tests API`, appelle `/publish` (mode page), vérifie la réponse (`public: true`), appelle `/revoke`, puis supprime le document. Le JSON final expose les payloads `published`/`revoked` pour audit.
+
+## Publication Smoke Test (Client direct)
+
+- **Path**: `tools/run-live-publication-smoke.mjs`
+- **Execution**:
+  ```bash
+  AFFINE_EMAIL=<email> AFFINE_PASSWORD=<password> \
+    node tools/run-live-publication-smoke.mjs
+  ```
+- **Scénario** : Utilise `AffineClient` pour créer un document, le publier (`publishDocument`), le révoquer (`revokeDocumentPublication`), puis supprimer ou conserver la page (`AFFINE_KEEP_TEST_DOC=1`). Ce test garantit que les mutations GraphQL fonctionnent avant tout déploiement REST.
+
 ## Extending the Scenario
 
 - Add assertions on rendered Markdown by converting the Yjs blocks back to Markdown using `@affine/reader`.

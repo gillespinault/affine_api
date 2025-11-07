@@ -58,7 +58,7 @@ function normalizeTags(value: unknown): string[] | undefined {
   return tags;
 }
 
-function normalizeCommentMode(value: unknown): CommentMode | undefined {
+function normalizeDocMode(value: unknown): CommentMode | undefined {
   if (typeof value !== 'string') {
     return undefined;
   }
@@ -542,7 +542,7 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
       }
 
       const docTitle = typeof body.docTitle === 'string' ? body.docTitle : undefined;
-      const docMode = normalizeCommentMode(body.docMode);
+      const docMode = normalizeDocMode(body.docMode);
       if (body.docMode !== undefined && !docMode) {
         reply.code(400).send({ error: 'docMode must be either "page" or "edgeless"' });
         return;
@@ -662,6 +662,62 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
           return;
         }
         reply.send({ id: commentId, resolved: resolvedInput });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        reply.code(500).send({ error: message });
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
+  app.post(
+    '/workspaces/:workspaceId/documents/:docId/publish',
+    async (request, reply) => {
+      const { workspaceId, docId } = request.params as {
+        workspaceId: string;
+        docId: string;
+      };
+      const body = (request.body ?? {}) as { mode?: string };
+      const normalizedMode =
+        body.mode === undefined ? undefined : normalizeDocMode(body.mode);
+      if (body.mode !== undefined && !normalizedMode) {
+        reply.code(400).send({ error: 'mode must be either "page" or "edgeless"' });
+        return;
+      }
+
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+      const client = createClient(config);
+
+      try {
+        await client.signIn(email, password);
+        const result = await client.publishDocument(workspaceId, docId, {
+          mode: normalizedMode,
+        });
+        reply.send(result);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        reply.code(500).send({ error: message });
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
+  app.post(
+    '/workspaces/:workspaceId/documents/:docId/revoke',
+    async (request, reply) => {
+      const { workspaceId, docId } = request.params as {
+        workspaceId: string;
+        docId: string;
+      };
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+      const client = createClient(config);
+
+      try {
+        await client.signIn(email, password);
+        const result = await client.revokeDocumentPublication(workspaceId, docId);
+        reply.send(result);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         reply.code(500).send({ error: message });

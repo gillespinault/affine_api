@@ -2,8 +2,8 @@
 
 | Champ | Détail |
 |-------|--------|
-| Version | 0.2.0 |
-| Date | 2025-11-08 |
+| Version | 0.3.1 |
+| Date | 2025-11-07 |
 | Statut | Production |
 | Auteur | ServerLab Team |
 
@@ -23,7 +23,7 @@
 
 ## 1. Introduction
 
-Le **serveur MCP AFFiNE Notebooks** expose 52 outils via le protocole [Model Context Protocol](https://modelcontextprotocol.io) pour permettre aux agents IA (Claude Code, Claude Desktop, Cline, etc.) de manipuler programmatiquement des workspaces, documents, blocs, dossiers, tags, éléments Edgeless, embeddings Copilot, historique des documents ainsi que les commentaires, notifications et tokens AFFiNE.
+Le **serveur MCP AFFiNE Notebooks** expose 54 outils via le protocole [Model Context Protocol](https://modelcontextprotocol.io) pour permettre aux agents IA (Claude Code, Claude Desktop, Cline, etc.) de manipuler programmatiquement des workspaces, documents, blocs, dossiers, tags, éléments Edgeless, embeddings Copilot, historique des documents ainsi que les commentaires, notifications, tokens et publication AFFiNE.
 
 ### Différences avec affine-mcp-server (DAWNCR0W)
 
@@ -129,7 +129,7 @@ Le serveur MCP sera compilé dans \`dist/mcp/start.js\` avec le binaire \`bin/af
 
 ---
 
-## 4. Liste des outils MCP (52 outils)
+## 4. Liste des outils MCP (54 outils)
 
 ### 4.1 Health (1 outil)
 
@@ -218,6 +218,11 @@ Le serveur MCP sera compilé dans \`dist/mcp/start.js\` avec le binaire \`bin/af
 - **\`list_access_tokens\`** : Inventorier les tokens personnels actifs.
 - **\`create_access_token\`** : Générer un token (le secret n’est renvoyé qu’une seule fois).
 - **\`revoke_access_token\`** : Révoquer un token via son identifiant.
+
+### 4.14 Publication publique (2 outils)
+
+- **\`publish_document\`** : Publier un document (mode page/edgeless) et récupérer l’état `public`.
+- **\`revoke_document\`** : Révoquer l’accès public d’un document.
 
 Voir documentation complète de chaque outil dans le guide complet.
 

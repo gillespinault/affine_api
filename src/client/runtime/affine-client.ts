@@ -68,6 +68,9 @@ export interface DocumentSummary {
   tags: string[];
   folderId: string | null;
   folderNodeId: string | null;
+  public?: boolean;
+  publicMode?: 'page' | 'edgeless' | null;
+  defaultRole?: string | null;
 }
 
 export interface DocumentSnapshot extends DocumentSummary {
@@ -199,6 +202,13 @@ export interface AccessTokenInfo {
   token?: string | null;
 }
 
+export interface DocumentPublicationInfo {
+  docId: string;
+  workspaceId: string;
+  public: boolean;
+  mode: 'page' | 'edgeless' | null;
+}
+
 export function parseSetCookies(headers: Array<string | undefined> = []) {
   const jar = new Map<string, string>();
   for (const header of headers) {
@@ -219,6 +229,27 @@ export function serializeCookies(jar: Map<string, string>) {
 
 export function randomLexoRank() {
   return `Z${randomBytes(18).toString('base64url')}`;
+}
+
+function toGraphqlDocMode(mode?: 'page' | 'edgeless'): 'Page' | 'Edgeless' | undefined {
+  if (!mode) {
+    return undefined;
+  }
+  return mode === 'edgeless' ? 'Edgeless' : 'Page';
+}
+
+function fromGraphqlDocMode(mode?: string | null): 'page' | 'edgeless' | null {
+  if (!mode) {
+    return null;
+  }
+  const normalized = mode.trim().toLowerCase();
+  if (normalized === 'edgeless') {
+    return 'edgeless';
+  }
+  if (normalized === 'page') {
+    return 'page';
+  }
+  return null;
 }
 
 export function decodeLoadResponse(res?: SocketAck<LoadDocAckPayload>): LoadDocResult {
@@ -2961,6 +2992,64 @@ export class AffineClient {
       revokeUserAccessToken: boolean;
     }>(query, { id: tokenId });
     return result.revokeUserAccessToken;
+  }
+
+  async publishDocument(
+    workspaceId: string,
+    docId: string,
+    options: { mode?: 'page' | 'edgeless' } = {},
+  ): Promise<DocumentPublicationInfo> {
+    const query = `
+      mutation publishDoc($workspaceId: String!, $docId: String!, $mode: PublicDocMode) {
+        publishDoc(workspaceId: $workspaceId, docId: $docId, mode: $mode) {
+          id
+          workspaceId
+          public
+          mode
+        }
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      publishDoc: { id: string; workspaceId: string; public: boolean; mode?: string | null };
+    }>(query, {
+      workspaceId,
+      docId,
+      mode: toGraphqlDocMode(options.mode),
+    });
+
+    const payload = result.publishDoc;
+    return {
+      docId: payload.id,
+      workspaceId: payload.workspaceId,
+      public: payload.public,
+      mode: fromGraphqlDocMode(payload.mode),
+    };
+  }
+
+  async revokeDocumentPublication(workspaceId: string, docId: string): Promise<DocumentPublicationInfo> {
+    const query = `
+      mutation revokeDoc($workspaceId: String!, $docId: String!) {
+        revokePublicDoc(workspaceId: $workspaceId, docId: $docId) {
+          id
+          workspaceId
+          public
+          mode
+        }
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      revokePublicDoc: { id: string; workspaceId: string; public: boolean; mode?: string | null };
+    }>(query, { workspaceId, docId });
+
+    const payload = result.revokePublicDoc;
+    return {
+      docId: payload.id,
+      workspaceId: payload.workspaceId,
+      public: payload.public,
+      mode: fromGraphqlDocMode(payload.mode) ?? null,
+    };
   }
 
   /**

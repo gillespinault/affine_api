@@ -18,7 +18,7 @@
 | 2 | **Historique & recovery** | Listing des versions, restore ciblé, métriques idempotentes. | Script d’intégration qui crée un doc, le modifie 3×, restaure `v1` et vérifie le contenu via API. |
 | 3 | **Autres chantiers fonctionnels** | Workspace lifecycle, publication publique, commentaires, notifications, tokens, blobs/apply updates. | Chaque livraison crée/annote des docs de test dans le même workspace/folder, résultats tracés dans `docs/api-test-guide.md`. |
 
-> **Mise à jour 2025-11-08** : Commentaires, notifications et tokens personnels sont livrés (REST + MCP). Le scope restant se concentre sur publication publique, lifecycle workspace et blob/apply updates.
+> **Mise à jour 2025-11-08** : Commentaires, notifications et tokens personnels sont livrés (REST + MCP). Publication publique (publish/revoke) est désormais disponible via REST + MCP (smokes outillés). Le scope restant se concentre sur lifecycle workspace et blob/apply updates.
 
 Chaque priorité ajoute des endpoints REST, les miroirs MCP et un guide d’usage. Les jobs de validation utilisent uniquement l’API notebooks (pas d’action manuelle) et laissent une trace dans AFFiNE pour audit.
 
@@ -37,7 +37,7 @@ Le serveur MCP `affine-mcp-server` expose via Claude/Codex des outils couvrant c
    - Journaliser les recoveries (docId, versionId, auteur) et fournir un endpoint de prévisualisation.
 3. **Autres fonctionnalités MCP à couvrir (Priorité 3)**  
    - CRUD commentaires + résolution.  
-   - Publication/révocation publique des documents.  
+   - Publication/révocation publique des documents (livrée 2025-11-07).  
    - Notifications (list/read/mark-all).  
    - Tokens personnels self-service.  
    - Lifecycle workspace (create/update/delete) pour provisionner des sandboxes.  

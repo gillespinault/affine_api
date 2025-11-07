@@ -213,4 +213,50 @@ describe('AffineClient collaboration helpers', () => {
     const revoked = await client.revokeAccessToken('token-1');
     expect(revoked).toBe(true);
   });
+
+  it('publishes and revokes documents via GraphQL helpers', async () => {
+    const client = await createSignedClient([
+      ({ variables }) => {
+        expect(variables).toMatchObject({
+          workspaceId: 'workspace-1',
+          docId: 'doc-1',
+          mode: 'Page',
+        });
+        return {
+          publishDoc: {
+            id: 'doc-1',
+            workspaceId: 'workspace-1',
+            public: true,
+            mode: 'Page',
+          },
+        };
+      },
+      ({ variables }) => {
+        expect(variables).toMatchObject({
+          workspaceId: 'workspace-1',
+          docId: 'doc-1',
+        });
+        return {
+          revokePublicDoc: {
+            id: 'doc-1',
+            workspaceId: 'workspace-1',
+            public: false,
+            mode: null,
+          },
+        };
+      },
+    ]);
+
+    const published = await client.publishDocument('workspace-1', 'doc-1', { mode: 'page' });
+    expect(published).toEqual({
+      docId: 'doc-1',
+      workspaceId: 'workspace-1',
+      public: true,
+      mode: 'page',
+    });
+
+    const revoked = await client.revokeDocumentPublication('workspace-1', 'doc-1');
+    expect(revoked.public).toBe(false);
+    expect(revoked.mode).toBeNull();
+  });
 });

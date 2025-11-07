@@ -8,14 +8,14 @@ API REST complète pour gérer programmatiquement des documents et dossiers dans
 
 Ce projet fournit :
 - **Client TypeScript** (`AffineClient`) – Authentification, Socket.IO, mutations Yjs (refactor en cours pour factoriser les helpers hérités du MCP)
-- **API REST Fastify** – 48 endpoints (workspaces, documents, folders, tags, blocks, edgeless, Copilot, historique, commentaires, notifications, tokens)
+- **API REST Fastify** – 50 endpoints (workspaces, documents, folders, tags, blocks, edgeless, Copilot, historique, commentaires, notifications, tokens, publication publique)
 - **Support Markdown** – Import/export avec GitHub Flavored Markdown
 - **Lecture structurée** – Extraction des blocs Yjs en JSON exploitable
 - **Opérations sur les blocs** – CRUD complet sur les blocs individuels (paragraphes, listes, etc.)
 - **Mode Edgeless / Canvas** ✅ – Création de shapes, connectors, text avec defaults BlockSuite automatiques
 - **Configuration du mode** ✅ – Définir le mode par défaut (page/edgeless) d'un document via API
 - **Copilot Search & Embeddings** – Recherche vectorielle native, statut, gestion des fichiers et docs ignorés via REST & MCP
-- **Serveur MCP** ✨ – 52 outils Model Context Protocol (Copilot/Embeddings, historique, commentaires, notifications, tokens) pour agents IA (Claude Code, Claude Desktop)
+- **Serveur MCP** ✨ – 54 outils Model Context Protocol (Copilot/Embeddings, historique, commentaires, notifications, tokens, publication) pour agents IA (Claude Code, Claude Desktop)
 - **Intégrations MCP** – Analyse comparative avec `affine-mcp-server` (détails dans `docs/reference/affine-mcp-analysis.md`)
 - **Production-ready** – Déployé sur Dokploy avec SSL Let's Encrypt + webhook auto-deploy
 
@@ -44,6 +44,7 @@ En plus de l'API REST, ce projet fournit un **serveur MCP** permettant aux agent
 | **Commentaires** (5) | list_comments, create_comment, update_comment, delete_comment, resolve_comment | Collaboration async, suivi des fils avec mentions |
 | **Notifications** (3) | list_notifications, read_notification, read_all_notifications | Mettre à jour les alertes utilisateur depuis un workflow |
 | **Tokens** (3) | list_access_tokens, create_access_token, revoke_access_token | Gestion self-service des tokens personnels |
+| **Publication** (2) | publish_document, revoke_document | Générer/révoquer un accès public à un document |
 | **Meta** (1) | update_workspace_meta | Métadonnées workspace |
 | **Health** (1) | health_check | Diagnostic connexion |
 
@@ -106,7 +107,7 @@ Notre serveur MCP apporte des fonctionnalités absentes du serveur communautaire
 
 Analyse détaillée : [`docs/reference/affine-mcp-analysis.md`](docs/reference/affine-mcp-analysis.md)
 
-## 📚 API Endpoints REST (48 total)
+## 📚 API Endpoints REST (50 total)
 
 ### Health Check
 ```bash
@@ -195,6 +196,12 @@ POST   /notifications/read-all                 # Tout marquer comme lu
 GET    /users/me/tokens            # Lister les tokens actifs (id, expiresAt)
 POST   /users/me/tokens            # Créer un token (retourne le secret une seule fois)
 DELETE /users/me/tokens/:tokenId   # Révoquer un token
+```
+
+### Publication publique (2 endpoints)
+```bash
+POST   /workspaces/:workspaceId/documents/:docId/publish  # Rendre un document public (mode page/edgeless)
+POST   /workspaces/:workspaceId/documents/:docId/revoke   # Révoquer l'accès public
 ```
 
 ### Workspace (1 endpoint)
@@ -1351,8 +1358,8 @@ L'API utilise les credentials côté serveur (pas d'API keys) :
 
 ### Ce qui est en place (2025-11-07)
 
-- REST : 48 endpoints (Workspaces, Documents, Blocks, Tags, Edgeless, Copilot, Historique, Commentaires, Notifications, Tokens).
-- MCP : 52 outils (surface complète REST + Commentaires/Notifications/Tokens).
+- REST : 50 endpoints (Workspaces, Documents, Blocks, Tags, Edgeless, Copilot, Historique, Commentaires, Notifications, Tokens, Publication).
+- MCP : 54 outils (surface REST complète + Publication).
 - Smoke tests :
   - `scripts/run-affine-api-test.ts` – CRUD Markdown + tags.
   - `scripts/run-copilot-embedding-smoke.ts` – embeddings + `/copilot/search` (doc `SxjNhXGckl3oz2RTVUc8p`).
@@ -1362,9 +1369,8 @@ L'API utilise les credentials côté serveur (pas d'API keys) :
 
 ### Priorité suivante (Phase 3b)
 
-1. Publication publique / révocation des documents.
-2. Lifecycle workspace (create/update/delete) pour provisioner des sandboxes.
-3. Blob storage + `apply_doc_updates` pour les migrations massives.
+1. Lifecycle workspace (create/update/delete) pour provisionner des sandboxes.
+2. Blob storage + `apply_doc_updates` pour les migrations massives.
 
 > Conserver le workflow : helpers client → REST → MCP → script smoke + mise à jour AFFiNE.
 
