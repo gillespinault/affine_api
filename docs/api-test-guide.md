@@ -49,6 +49,23 @@ Ce script prouve l'intégration bout en bout Copilot/Embeddings sans dépendre d
 
 > **Prereq (prod AFFiNE)** : l’extension `vector` doit être déplacée dans le schéma `affine` ( `ALTER EXTENSION vector SET SCHEMA affine;` ) pour que Prisma résolve le type lors des requêtes `matchWorkspaceDocs`. Exemple de run validé le 2025‑11‑07 : doc `SxjNhXGckl3oz2RTVUc8p` avec token `copilot-mhonytp5` détecté (distance ≈0.25) et statut `total=59 / embedded=59`.
 
+## Historique & Recovery Smoke Test
+
+- **Path**: `scripts/run-history-recovery-smoke.ts`
+- **Execution**:
+  ```bash
+  AFFINE_EMAIL=<email> AFFINE_PASSWORD=<password> \
+    ./node_modules/.bin/tsx scripts/run-history-recovery-smoke.ts
+  ```
+- **Scénario** :
+  1. Crée un document dans `Affine_API/Tests API` avec un token unique.
+  2. Applique deux mises à jour successives (versions B et C) pour générer des entrées d’historique.
+  3. Appelle `GET /history` pour récupérer les timestamps disponibles.
+  4. Restaure la version la plus ancienne via `POST /history/recover`.
+  5. Lit le contenu courant (`AffineClient.getDocumentContent`) et vérifie que le texte correspond à la “Version A”.
+
+La sortie JSON inclut la liste des `historyEntries`, le timestamp restauré et un booléen `restoredMatches` qui doit être `true` pour valider la réussite.
+
 ## Extending the Scenario
 
 - Add assertions on rendered Markdown by converting the Yjs blocks back to Markdown using `@affine/reader`.

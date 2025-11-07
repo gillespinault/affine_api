@@ -122,11 +122,14 @@ Le serveur MCP `affine-mcp-server` expose via Claude/Codex des outils couvrant c
 - Unit tests TB (transformations, payloads).
 - Intégration : workspace **Robots in Love**, dossier `Affine_API/Tests API`.  
   Chaque feature crée via l’API un sous-dossier daté + documents/fichiers de preuve (ex : `copilot-search/query-001`), puis consigne les IDs retournés.
-- Scripts d’exemple (`scripts/run-affine-collaboration-test.ts`) qui :
-  1. Provisionne le jeu de données (création doc, upload fichier).  
-  2. Appelle l’endpoint ciblé.  
-  3. Vérifie la réponse (contenu, distances, statut).  
-  4. Journalise le résultat dans AFFiNE (note « Test run XYZ »).
+- Scripts d’exemple :
+  - `scripts/run-affine-api-test.ts` (CRUD markdown)
+  - `scripts/run-copilot-embedding-smoke.ts` (queue + search)
+  - `scripts/run-history-recovery-smoke.ts` (list/recover history)
+  1. Provisionnent le jeu de données (création doc, upload fichier).  
+  2. Appellent l’endpoint ciblé.  
+  3. Vérifient la réponse (contenu, distances, statut).  
+  4. Journalisent le résultat dans AFFiNE (note « Test run XYZ »).
 - Smoke test CLI réutilisable dans CI pour déclencher l’ensemble.
 
 ## 10. Monitoring

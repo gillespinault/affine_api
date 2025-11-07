@@ -641,6 +641,41 @@ const handleSearchDocuments: Handler = async args => {
   });
 };
 
+const handleListDocumentHistory: Handler = async args => {
+  const workspaceId = getString(args, 'workspaceId', { required: true })!;
+  const docId = getString(args, 'docId', { required: true })!;
+  const limit = getNumber(args, 'limit', { min: 1, max: 100 });
+  const before = getString(args, 'before');
+
+  const affine = await getClient();
+  const history = await affine.listDocumentHistory(workspaceId, docId, {
+    limit: limit ?? undefined,
+    before: before && before.length ? before : undefined,
+  });
+
+  return success({
+    workspaceId,
+    docId,
+    count: history.length,
+    entries: history,
+  });
+};
+
+const handleRecoverDocumentVersion: Handler = async args => {
+  const workspaceId = getString(args, 'workspaceId', { required: true })!;
+  const docId = getString(args, 'docId', { required: true })!;
+  const timestamp = getString(args, 'timestamp', { required: true })!;
+
+  const affine = await getClient();
+  const recovered = await affine.recoverDocumentVersion(workspaceId, docId, timestamp);
+  return success({
+    workspaceId,
+    docId,
+    timestamp,
+    recovered,
+  });
+};
+
 const handleCopilotSearch: Handler = async args => {
   const workspaceId = getString(args, 'workspaceId', { required: true })!;
   const query = getString(args, 'query', { required: true })!;
@@ -1237,6 +1272,39 @@ const toolDefinitions: ToolDefinition[] = [
       ['query'],
     ),
     handleSearchDocuments,
+  ),
+  makeTool(
+    'list_document_history',
+    'List Document History',
+    'Retrieve the version history of a document.',
+    docSchema({
+      limit: {
+        type: 'number',
+        minimum: 1,
+        maximum: 100,
+        description: 'Max number of history entries to return.',
+      },
+      before: {
+        type: 'string',
+        description: 'Optional ISO timestamp to paginate backwards.',
+      },
+    }),
+    handleListDocumentHistory,
+  ),
+  makeTool(
+    'recover_document_version',
+    'Recover Document Version',
+    'Restore a document to a specific timestamp from its history.',
+    docSchema(
+      {
+        timestamp: {
+          type: 'string',
+          description: 'ISO timestamp pointing to the target version.',
+        },
+      },
+      ['timestamp'],
+    ),
+    handleRecoverDocumentVersion,
   ),
   makeTool(
     'copilot_search',

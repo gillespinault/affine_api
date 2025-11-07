@@ -129,6 +129,15 @@ export interface WorkspaceEmbeddingFile {
   createdAt: string;
 }
 
+export interface DocumentHistoryEntry {
+  id: string;
+  timestamp: string;
+  editor: {
+    name: string | null;
+    avatarUrl: string | null;
+  } | null;
+}
+
 export interface TagInfo {
   id: string;
   name: string;
@@ -2486,6 +2495,63 @@ export class AffineClient {
       removeWorkspaceEmbeddingFiles: boolean;
     }>(query, { workspaceId, fileId });
     return result.removeWorkspaceEmbeddingFiles;
+  }
+
+  async listDocumentHistory(
+    workspaceId: string,
+    docId: string,
+    options: { limit?: number; before?: string } = {},
+  ): Promise<DocumentHistoryEntry[]> {
+    const query = `
+      query listHistory($workspaceId: String!, $pageDocId: String!, $take: Int, $before: DateTime) {
+        workspace(id: $workspaceId) {
+          histories(guid: $pageDocId, take: $take, before: $before) {
+            id
+            timestamp
+            editor {
+              name
+              avatarUrl
+            }
+          }
+        }
+      }
+    `;
+
+    const variables: Record<string, unknown> = {
+      workspaceId,
+      pageDocId: docId,
+    };
+    this.assignOptionalVariable(
+      variables,
+      'take',
+      typeof options.limit === 'number' ? options.limit : undefined,
+    );
+    this.assignOptionalVariable(variables, 'before', options.before);
+
+    const result = await this.graphqlQuery<{
+      workspace: {
+        histories: DocumentHistoryEntry[];
+      } | null;
+    }>(query, variables);
+
+    return result.workspace?.histories ?? [];
+  }
+
+  async recoverDocumentVersion(
+    workspaceId: string,
+    docId: string,
+    timestamp: string,
+  ): Promise<boolean> {
+    const query = `
+      mutation recoverDoc($workspaceId: String!, $docId: String!, $timestamp: DateTime!) {
+        recoverDoc(workspaceId: $workspaceId, guid: $docId, timestamp: $timestamp)
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      recoverDoc: boolean;
+    }>(query, { workspaceId, docId, timestamp });
+    return result.recoverDoc;
   }
 
   /**

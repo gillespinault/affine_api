@@ -23,7 +23,7 @@
 
 ## 1. Introduction
 
-Le **serveur MCP AFFiNE Notebooks** expose 39 outils via le protocole [Model Context Protocol](https://modelcontextprotocol.io) pour permettre aux agents IA (Claude Code, Claude Desktop, Cline, etc.) de manipuler programmatiquement des workspaces, documents, blocs, dossiers, tags, éléments Edgeless et les embeddings Copilot dans AFFiNE.
+Le **serveur MCP AFFiNE Notebooks** expose 41 outils via le protocole [Model Context Protocol](https://modelcontextprotocol.io) pour permettre aux agents IA (Claude Code, Claude Desktop, Cline, etc.) de manipuler programmatiquement des workspaces, documents, blocs, dossiers, tags, éléments Edgeless, embeddings Copilot et historique des documents dans AFFiNE.
 
 ### Différences avec affine-mcp-server (DAWNCR0W)
 
@@ -129,7 +129,7 @@ Le serveur MCP sera compilé dans \`dist/mcp/start.js\` avec le binaire \`bin/af
 
 ---
 
-## 4. Liste des outils MCP (39 outils)
+## 4. Liste des outils MCP (41 outils)
 
 ### 4.1 Health (1 outil)
 
@@ -193,6 +193,11 @@ Le serveur MCP sera compilé dans \`dist/mcp/start.js\` avec le binaire \`bin/af
 - **\`list_embedding_files\`** : Inventorier les fichiers/attachments indexés
 - **\`add_embedding_file\`** : Uploader un fichier (base64 ou data URL)
 - **\`remove_embedding_file\`** : Supprimer un fichier et ses embeddings associés
+
+### 4.10 Historique (2 outils)
+
+- **\`list_document_history\`** : Lister les versions disponibles pour un document (id, timestamp, auteur).
+- **\`recover_document_version\`** : Restaurer un document à partir d’un timestamp issu de l’historique.
 
 Voir documentation complète de chaque outil dans le guide complet.
 

@@ -8,14 +8,14 @@ API REST complète pour gérer programmatiquement des documents et dossiers dans
 
 Ce projet fournit :
 - **Client TypeScript** (`AffineClient`) – Authentification, Socket.IO, mutations Yjs (refactor en cours pour factoriser les helpers hérités du MCP)
-- **API REST Fastify** – 35+ endpoints pour workspace navigation, documents, folders, tags, blocks, edgeless et Copilot
+- **API REST Fastify** – 37+ endpoints pour workspace navigation, documents, folders, tags, blocks, edgeless, Copilot et historique
 - **Support Markdown** – Import/export avec GitHub Flavored Markdown
 - **Lecture structurée** – Extraction des blocs Yjs en JSON exploitable
 - **Opérations sur les blocs** – CRUD complet sur les blocs individuels (paragraphes, listes, etc.)
 - **Mode Edgeless / Canvas** ✅ – Création de shapes, connectors, text avec defaults BlockSuite automatiques
 - **Configuration du mode** ✅ – Définir le mode par défaut (page/edgeless) d'un document via API
 - **Copilot Search & Embeddings** – Recherche vectorielle native, statut, gestion des fichiers et docs ignorés via REST & MCP
-- **Serveur MCP** ✨ – 39 outils Model Context Protocol (ajout Copilot/Embeddings) pour agents IA (Claude Code, Claude Desktop)
+- **Serveur MCP** ✨ – 41 outils Model Context Protocol (ajout Copilot/Embeddings + historique) pour agents IA (Claude Code, Claude Desktop)
 - **Intégrations MCP** – Analyse comparative avec `affine-mcp-server` (détails dans `docs/reference/affine-mcp-analysis.md`)
 - **Production-ready** – Déployé sur Dokploy avec SSL Let's Encrypt + webhook auto-deploy
 
@@ -29,7 +29,7 @@ En plus de l'API REST, ce projet fournit un **serveur MCP** permettant aux agent
 - **Workflows conversationnels** : "Crée un document avec ce markdown" → Agent exécute automatiquement
 - **Prototypage rapide** : Tester des scénarios sans écrire de code d'intégration
 
-### 39 Outils Disponibles
+### 41 Outils Disponibles
 
 | Catégorie | Outils | Exemples |
 |-----------|--------|----------|
@@ -40,6 +40,7 @@ En plus de l'API REST, ce projet fournit un **serveur MCP** permettant aux agent
 | **Folders** (1) | create_folder | Organiser documents |
 | **Tags** (3) | list_tags, create_tag, delete_tag | Gestion tags |
 | **Copilot / Embeddings** (8) | copilot_search, copilot_embedding_status, list/update ignored docs, queue_doc_embedding, list/add/remove embedding files | Recherche vectorielle AFFiNE, pilotage du pipeline d'indexation |
+| **Historique** (2) | list_document_history, recover_document_version | Audit et restauration de versions AFFiNE |
 | **Meta** (1) | update_workspace_meta | Métadonnées workspace |
 | **Health** (1) | health_check | Diagnostic connexion |
 
@@ -102,7 +103,7 @@ Notre serveur MCP apporte des fonctionnalités absentes du serveur communautaire
 
 Analyse détaillée : [`docs/reference/affine-mcp-analysis.md`](docs/reference/affine-mcp-analysis.md)
 
-## 📚 API Endpoints REST (35+ total)
+## 📚 API Endpoints REST (37+ total)
 
 ### Health Check
 ```bash

@@ -76,7 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added - MCP Server
 
-- **Model Context Protocol Server** (39 tools)
+- **Model Context Protocol Server** (41 tools)
   - Health: `health_check`
   - Workspaces (5): list_workspaces, get_workspace, get_hierarchy, etc.
   - Documents (8): create_document, update_document, search_documents, etc.
@@ -86,6 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tags (3): list_tags, create_tag, delete_tag
   - Meta (1): update_workspace_meta
   - Copilot / Embeddings (8): copilot_search, copilot_embedding_status, list/update ignored docs, queue_doc_embedding, list/add/remove embedding files
+  - Historique (2): list_document_history, recover_document_version
 
 - **MCP Configuration**
   - stdio transport for local agents

@@ -46,7 +46,7 @@ Encapsule l'authentification (REST `/api/auth/sign-in`), l'ouverture de WebSocke
 
 **Version** : 0.1.0-mcp (2025-11-06)
 
-- **39 outils Model Context Protocol** (Copilot inclus) pour agents IA
+- **41 outils Model Context Protocol** (Copilot + Historique) pour agents IA
 - **Transport** : stdio (processus local)
 - **Clients supportés** : Claude Code, Claude Desktop, Cline
 - **Binaire** : `bin/affine-mcp.js`

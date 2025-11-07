@@ -1,5 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify';
-import { AffineClient } from '../client/index.js';
+import { AffineClient, type CopilotDocChunk, type CopilotFileChunk } from '../client/index.js';
 import type { AffineClientOptions } from '../client/index.js';
 
 type DocumentPayload = {
@@ -151,6 +151,77 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
         await client.connectSocket();
         const content = await client.getDocumentContent(workspaceId, docId);
         reply.send(content);
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
+  app.get(
+    '/workspaces/:workspaceId/documents/:docId/history',
+    async (request, reply) => {
+      const { workspaceId, docId } = request.params as {
+        workspaceId: string;
+        docId: string;
+      };
+      const { limit, before } = request.query as { limit?: string; before?: string };
+      const parsedLimit =
+        typeof limit === 'string' && limit.length ? Number.parseInt(limit, 10) : undefined;
+
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+      const client = createClient(config);
+
+      try {
+        await client.signIn(email, password);
+        const entries = await client.listDocumentHistory(workspaceId, docId, {
+          limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
+          before: before?.trim() || undefined,
+        });
+
+        reply.send({
+          workspaceId,
+          docId,
+          count: entries.length,
+          entries,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        reply.code(500).send({ error: message });
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
+  app.post(
+    '/workspaces/:workspaceId/documents/:docId/history/recover',
+    async (request, reply) => {
+      const { workspaceId, docId } = request.params as {
+        workspaceId: string;
+        docId: string;
+      };
+      const body = (request.body ?? {}) as { timestamp?: string };
+      const timestamp = body.timestamp?.trim();
+      if (!timestamp) {
+        reply.code(400).send({ error: 'timestamp is required (ISO 8601)' });
+        return;
+      }
+
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+      const client = createClient(config);
+
+      try {
+        await client.signIn(email, password);
+        const recovered = await client.recoverDocumentVersion(workspaceId, docId, timestamp);
+        reply.send({
+          workspaceId,
+          docId,
+          timestamp,
+          recovered,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        reply.code(500).send({ error: message });
       } finally {
         await client.disconnect();
       }
@@ -848,8 +919,8 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     try {
       await client.signIn(email, password);
 
-      let docs = [];
-      let files = [];
+      let docs: CopilotDocChunk[] = [];
+      let files: CopilotFileChunk[] = [];
       if (scope === 'docs' || scope === 'all') {
         docs = await client.matchWorkspaceDocs(workspaceId, query, options);
       }
@@ -927,11 +998,15 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     const body = (request.body ?? {}) as { add?: unknown; remove?: unknown };
 
     const add = Array.isArray(body.add)
-      ? body.add.filter((value): value is string => typeof value === 'string' && value.trim().length)
+      ? body.add.filter(
+          (value): value is string =>
+            typeof value === 'string' && value.trim().length > 0,
+        )
       : [];
     const remove = Array.isArray(body.remove)
       ? body.remove.filter(
-          (value): value is string => typeof value === 'string' && value.trim().length,
+          (value): value is string =>
+            typeof value === 'string' && value.trim().length > 0,
         )
       : [];
 
@@ -966,7 +1041,9 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
 
     const docIds = Array.isArray(body.docIds)
       ? body.docIds
-          .filter((value): value is string => typeof value === 'string' && value.trim().length)
+          .filter(
+            (value): value is string => typeof value === 'string' && value.trim().length > 0,
+          )
           .map(value => value.trim())
       : [];
 
