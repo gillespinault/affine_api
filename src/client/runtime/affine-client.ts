@@ -2,6 +2,7 @@ import { io, type ManagerOptions, type Socket, type SocketOptions } from 'socket
 import * as Y from 'yjs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { URL } from 'node:url';
+import { File, FormData } from 'undici';
 import type { AffineClientOptions } from './types.js';
 import { createDocYStructure, nanoid } from './doc-structure.js';
 import { createDocYStructureFromMarkdown } from '../markdown/markdown-to-yjs.js';
@@ -16,10 +17,12 @@ export type IOFactory = (
   options?: Partial<ManagerOptions & SocketOptions>,
 ) => Socket;
 
+type BodyInitLike = string | Buffer | Uint8Array | FormData;
+
 interface RequestInitLike {
   method?: string;
   headers?: Record<string, string>;
-  body?: string;
+  body?: BodyInitLike;
   redirect?: 'manual' | 'follow' | 'error' | string;
 }
 
@@ -81,6 +84,49 @@ export interface BlockContent {
 
 export interface DocumentContent extends DocumentSummary {
   blocks: BlockContent[];
+}
+
+export interface CopilotDocChunk {
+  docId: string;
+  chunk: number;
+  content: string;
+  distance: number | null;
+}
+
+export interface CopilotFileChunk {
+  fileId: string | null;
+  blobId: string | null;
+  name?: string | null;
+  mimeType?: string | null;
+  chunk: number;
+  content: string;
+  distance: number | null;
+}
+
+export interface WorkspaceEmbeddingStatus {
+  total: number;
+  embedded: number;
+}
+
+export interface WorkspaceIgnoredDoc {
+  docId: string;
+  createdAt: string;
+  docCreatedAt?: string | null;
+  docUpdatedAt?: string | null;
+  title?: string | null;
+  createdBy?: string | null;
+  createdByAvatar?: string | null;
+  updatedBy?: string | null;
+}
+
+export interface WorkspaceEmbeddingFile {
+  workspaceId: string;
+  fileId: string;
+  blobId: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
 }
 
 export interface TagInfo {
@@ -189,6 +235,26 @@ export class AffineClient {
     this.userId = null;
     this.socket = null;
     this.joinedWorkspaces = new Set();
+  }
+
+  private assignOptionalVariable(
+    target: Record<string, unknown>,
+    key: string,
+    value: unknown,
+  ) {
+    if (value !== undefined) {
+      target[key] = value;
+    }
+  }
+
+  private buildPaginationInput(
+    first?: number,
+    offset?: number,
+  ): { first: number; offset: number } {
+    const safeFirst = typeof first === 'number' && !Number.isNaN(first) ? first : 20;
+    const safeOffset =
+      typeof offset === 'number' && !Number.isNaN(offset) ? offset : 0;
+    return { first: safeFirst, offset: safeOffset };
   }
 
   private getOrCreateSummary(
@@ -1947,6 +2013,85 @@ export class AffineClient {
     return json.data;
   }
 
+  private async graphqlMultipart<T = unknown>(
+    query: string,
+    variables: Record<string, unknown>,
+    files: Array<{
+      variableName: string;
+      fileName: string;
+      content: Buffer;
+      mimeType?: string;
+    }>,
+  ): Promise<T> {
+    if (!this.cookieJar.size) {
+      throw new Error('Must sign in before making GraphQL requests');
+    }
+
+    const url = new URL('/graphql', this.baseUrl).toString();
+    const safeVariables: Record<string, unknown> = { ...variables };
+    for (const file of files) {
+      safeVariables[file.variableName] = null;
+    }
+
+    const form = new FormData();
+    form.set(
+      'operations',
+      JSON.stringify({
+        query,
+        variables: safeVariables,
+      }),
+    );
+
+    const map: Record<string, string[]> = {};
+    files.forEach((file, index) => {
+      map[String(index)] = [`variables.${file.variableName}`];
+    });
+    form.set('map', JSON.stringify(map));
+
+    files.forEach((file, index) => {
+      const payload = new File([file.content], file.fileName, {
+        type: file.mimeType ?? 'application/octet-stream',
+      });
+      form.set(String(index), payload, file.fileName);
+    });
+
+    const response = await this.fetchFn(url, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        cookie: this.getCookieHeader(),
+      },
+      body: form,
+    });
+
+    if (!response.ok) {
+      let text = '<unreadable>';
+      try {
+        text = await response.text();
+      } catch {
+        // ignore
+      }
+      throw new Error(
+        `GraphQL request failed (${response.status} ${response.statusText}): ${text}`,
+      );
+    }
+
+    const json = JSON.parse(await response.text()) as {
+      data?: T;
+      errors?: Array<{ message: string }>;
+    };
+
+    if (json.errors && json.errors.length > 0) {
+      throw new Error(`GraphQL errors: ${json.errors.map(e => e.message).join(', ')}`);
+    }
+
+    if (!json.data) {
+      throw new Error('GraphQL response missing data field');
+    }
+
+    return json.data;
+  }
+
   /**
    * List all accessible workspaces with names and metadata.
    *
@@ -2012,6 +2157,335 @@ export class AffineClient {
     );
 
     return workspacesWithNames;
+  }
+
+  async queryWorkspaceEmbeddingStatus(workspaceId: string): Promise<WorkspaceEmbeddingStatus> {
+    const query = `
+      query getWorkspaceEmbeddingStatus($workspaceId: String!) {
+        queryWorkspaceEmbeddingStatus(workspaceId: $workspaceId) {
+          total
+          embedded
+        }
+      }
+    `;
+    const result = await this.graphqlQuery<{
+      queryWorkspaceEmbeddingStatus: WorkspaceEmbeddingStatus;
+    }>(query, { workspaceId });
+    return result.queryWorkspaceEmbeddingStatus;
+  }
+
+  async matchWorkspaceDocs(
+    workspaceId: string,
+    content: string,
+    options: {
+      limit?: number;
+      threshold?: number;
+      scopedThreshold?: number;
+      contextId?: string;
+    } = {},
+  ): Promise<CopilotDocChunk[]> {
+    const query = `
+      query matchWorkspaceDocs($contextId: String, $workspaceId: String!, $content: String!, $limit: SafeInt, $scopedThreshold: Float, $threshold: Float) {
+        currentUser {
+          copilot(workspaceId: $workspaceId) {
+            contexts(contextId: $contextId) {
+              matchWorkspaceDocs(content: $content, limit: $limit, scopedThreshold: $scopedThreshold, threshold: $threshold) {
+                docId
+                chunk
+                content
+                distance
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const variables: Record<string, unknown> = {
+      workspaceId,
+      content,
+    };
+    this.assignOptionalVariable(variables, 'contextId', options.contextId);
+    this.assignOptionalVariable(variables, 'limit', options.limit);
+    this.assignOptionalVariable(variables, 'threshold', options.threshold);
+    this.assignOptionalVariable(variables, 'scopedThreshold', options.scopedThreshold);
+
+    const result = await this.graphqlQuery<{
+      currentUser: {
+        copilot: {
+          contexts: Array<{
+            matchWorkspaceDocs?: CopilotDocChunk[];
+          }>;
+        } | null;
+      } | null;
+    }>(query, variables);
+
+    const contexts = result.currentUser?.copilot?.contexts ?? [];
+    return contexts.flatMap(ctx => ctx.matchWorkspaceDocs ?? []);
+  }
+
+  async matchWorkspaceFiles(
+    workspaceId: string,
+    content: string,
+    options: {
+      limit?: number;
+      threshold?: number;
+      scopedThreshold?: number;
+      contextId?: string;
+    } = {},
+  ): Promise<CopilotFileChunk[]> {
+    const query = `
+      query matchFiles($contextId: String, $workspaceId: String!, $content: String!, $limit: SafeInt, $scopedThreshold: Float, $threshold: Float) {
+        currentUser {
+          copilot(workspaceId: $workspaceId) {
+            contexts(contextId: $contextId) {
+              matchFiles(content: $content, limit: $limit, scopedThreshold: $scopedThreshold, threshold: $threshold) {
+                fileId
+                blobId
+                name
+                mimeType
+                chunk
+                content
+                distance
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const variables: Record<string, unknown> = {
+      workspaceId,
+      content,
+    };
+    this.assignOptionalVariable(variables, 'contextId', options.contextId);
+    this.assignOptionalVariable(variables, 'limit', options.limit);
+    this.assignOptionalVariable(variables, 'threshold', options.threshold);
+    this.assignOptionalVariable(variables, 'scopedThreshold', options.scopedThreshold);
+
+    const result = await this.graphqlQuery<{
+      currentUser: {
+        copilot: {
+          contexts: Array<{
+            matchFiles?: CopilotFileChunk[];
+          }>;
+        } | null;
+      } | null;
+    }>(query, variables);
+
+    const contexts = result.currentUser?.copilot?.contexts ?? [];
+    return contexts.flatMap(ctx => ctx.matchFiles ?? []);
+  }
+
+  async listWorkspaceIgnoredDocs(
+    workspaceId: string,
+    options: { first?: number; offset?: number } = {},
+  ): Promise<{
+    totalCount: number;
+    pageInfo: { endCursor: string | null; hasNextPage: boolean };
+    items: WorkspaceIgnoredDoc[];
+  }> {
+    const pagination = this.buildPaginationInput(options.first, options.offset);
+    const query = `
+      query getWorkspaceEmbeddingIgnoredDocs($workspaceId: String!, $pagination: PaginationInput!) {
+        workspace(id: $workspaceId) {
+          embedding {
+            ignoredDocs(pagination: $pagination) {
+              totalCount
+              pageInfo {
+                endCursor
+                hasNextPage
+              }
+              edges {
+                node {
+                  docId
+                  createdAt
+                  docCreatedAt
+                  docUpdatedAt
+                  title
+                  createdBy
+                  createdByAvatar
+                  updatedBy
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      workspace: {
+        embedding: {
+          ignoredDocs: {
+            totalCount: number;
+            pageInfo: { endCursor: string | null; hasNextPage: boolean };
+            edges: Array<{ node: WorkspaceIgnoredDoc }>;
+          };
+        } | null;
+      } | null;
+    }>(query, { workspaceId, pagination });
+
+    const connection = result.workspace?.embedding?.ignoredDocs;
+    if (!connection) {
+      return {
+        totalCount: 0,
+        pageInfo: { endCursor: null, hasNextPage: false },
+        items: [],
+      };
+    }
+
+    return {
+      totalCount: connection.totalCount,
+      pageInfo: connection.pageInfo,
+      items: connection.edges.map(edge => edge.node),
+    };
+  }
+
+  async updateWorkspaceIgnoredDocs(
+    workspaceId: string,
+    options: { add?: string[]; remove?: string[] },
+  ): Promise<number> {
+    const query = `
+      mutation updateWorkspaceEmbeddingIgnoredDocs($workspaceId: String!, $add: [String!], $remove: [String!]) {
+        updateWorkspaceEmbeddingIgnoredDocs(workspaceId: $workspaceId, add: $add, remove: $remove)
+      }
+    `;
+    const variables: Record<string, unknown> = { workspaceId };
+    this.assignOptionalVariable(variables, 'add', options.add?.length ? options.add : undefined);
+    this.assignOptionalVariable(
+      variables,
+      'remove',
+      options.remove?.length ? options.remove : undefined,
+    );
+
+    const result = await this.graphqlQuery<{
+      updateWorkspaceEmbeddingIgnoredDocs: number;
+    }>(query, variables);
+    return result.updateWorkspaceEmbeddingIgnoredDocs;
+  }
+
+  async queueWorkspaceEmbedding(workspaceId: string, docIds: string[]): Promise<boolean> {
+    const query = `
+      mutation queueWorkspaceEmbedding($workspaceId: String!, $docId: [String!]!) {
+        queueWorkspaceEmbedding(workspaceId: $workspaceId, docId: $docId)
+      }
+    `;
+    const result = await this.graphqlQuery<{
+      queueWorkspaceEmbedding: boolean;
+    }>(query, { workspaceId, docId: docIds });
+    return result.queueWorkspaceEmbedding;
+  }
+
+  async listWorkspaceEmbeddingFiles(
+    workspaceId: string,
+    options: { first?: number; offset?: number } = {},
+  ): Promise<{
+    totalCount: number;
+    pageInfo: { endCursor: string | null; hasNextPage: boolean };
+    items: WorkspaceEmbeddingFile[];
+  }> {
+    const pagination = this.buildPaginationInput(options.first, options.offset);
+    const query = `
+      query getWorkspaceEmbeddingFiles($workspaceId: String!, $pagination: PaginationInput!) {
+        workspace(id: $workspaceId) {
+          embedding {
+            files(pagination: $pagination) {
+              totalCount
+              pageInfo {
+                endCursor
+                hasNextPage
+              }
+              edges {
+                node {
+                  workspaceId
+                  fileId
+                  blobId
+                  fileName
+                  mimeType
+                  size
+                  createdAt
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      workspace: {
+        embedding: {
+          files: {
+            totalCount: number;
+            pageInfo: { endCursor: string | null; hasNextPage: boolean };
+            edges: Array<{ node: WorkspaceEmbeddingFile }>;
+          };
+        } | null;
+      } | null;
+    }>(query, { workspaceId, pagination });
+
+    const connection = result.workspace?.embedding?.files;
+    if (!connection) {
+      return {
+        totalCount: 0,
+        pageInfo: { endCursor: null, hasNextPage: false },
+        items: [],
+      };
+    }
+
+    return {
+      totalCount: connection.totalCount,
+      pageInfo: connection.pageInfo,
+      items: connection.edges.map(edge => edge.node),
+    };
+  }
+
+  async addWorkspaceEmbeddingFile(
+    workspaceId: string,
+    file: { fileName: string; content: Buffer; mimeType?: string },
+  ): Promise<WorkspaceEmbeddingFile> {
+    const query = `
+      mutation addWorkspaceEmbeddingFiles($workspaceId: String!, $blob: Upload!) {
+        addWorkspaceEmbeddingFiles(workspaceId: $workspaceId, blob: $blob) {
+          workspaceId
+          fileId
+          blobId
+          fileName
+          mimeType
+          size
+          createdAt
+        }
+      }
+    `;
+
+    const result = await this.graphqlMultipart<{
+      addWorkspaceEmbeddingFiles: WorkspaceEmbeddingFile;
+    }>(query, { workspaceId, blob: null }, [
+      {
+        variableName: 'blob',
+        fileName: file.fileName,
+        content: file.content,
+        mimeType: file.mimeType,
+      },
+    ]);
+    return result.addWorkspaceEmbeddingFiles;
+  }
+
+  async removeWorkspaceEmbeddingFile(
+    workspaceId: string,
+    fileId: string,
+  ): Promise<boolean> {
+    const query = `
+      mutation removeWorkspaceEmbeddingFiles($workspaceId: String!, $fileId: String!) {
+        removeWorkspaceEmbeddingFiles(workspaceId: $workspaceId, fileId: $fileId)
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      removeWorkspaceEmbeddingFiles: boolean;
+    }>(query, { workspaceId, fileId });
+    return result.removeWorkspaceEmbeddingFiles;
   }
 
   /**

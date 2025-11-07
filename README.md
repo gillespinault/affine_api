@@ -8,13 +8,14 @@ API REST complète pour gérer programmatiquement des documents et dossiers dans
 
 Ce projet fournit :
 - **Client TypeScript** (`AffineClient`) – Authentification, Socket.IO, mutations Yjs (refactor en cours pour factoriser les helpers hérités du MCP)
-- **API REST Fastify** – 27 endpoints pour workspace navigation, documents, folders, tags, blocks, et edgeless mode
+- **API REST Fastify** – 35+ endpoints pour workspace navigation, documents, folders, tags, blocks, edgeless et Copilot
 - **Support Markdown** – Import/export avec GitHub Flavored Markdown
 - **Lecture structurée** – Extraction des blocs Yjs en JSON exploitable
 - **Opérations sur les blocs** – CRUD complet sur les blocs individuels (paragraphes, listes, etc.)
 - **Mode Edgeless / Canvas** ✅ – Création de shapes, connectors, text avec defaults BlockSuite automatiques
 - **Configuration du mode** ✅ – Définir le mode par défaut (page/edgeless) d'un document via API
-- **Serveur MCP** ✨ – 31 outils Model Context Protocol pour agents IA (Claude Code, Claude Desktop)
+- **Copilot Search & Embeddings** – Recherche vectorielle native, statut, gestion des fichiers et docs ignorés via REST & MCP
+- **Serveur MCP** ✨ – 39 outils Model Context Protocol (ajout Copilot/Embeddings) pour agents IA (Claude Code, Claude Desktop)
 - **Intégrations MCP** – Analyse comparative avec `affine-mcp-server` (détails dans `docs/reference/affine-mcp-analysis.md`)
 - **Production-ready** – Déployé sur Dokploy avec SSL Let's Encrypt + webhook auto-deploy
 
@@ -28,7 +29,7 @@ En plus de l'API REST, ce projet fournit un **serveur MCP** permettant aux agent
 - **Workflows conversationnels** : "Crée un document avec ce markdown" → Agent exécute automatiquement
 - **Prototypage rapide** : Tester des scénarios sans écrire de code d'intégration
 
-### 31 Outils Disponibles
+### 39 Outils Disponibles
 
 | Catégorie | Outils | Exemples |
 |-----------|--------|----------|
@@ -38,6 +39,7 @@ En plus de l'API REST, ce projet fournit un **serveur MCP** permettant aux agent
 | **Edgeless Canvas** (5) | create_edgeless_element, list_elements | Créer shapes, connectors, flowcharts |
 | **Folders** (1) | create_folder | Organiser documents |
 | **Tags** (3) | list_tags, create_tag, delete_tag | Gestion tags |
+| **Copilot / Embeddings** (8) | copilot_search, copilot_embedding_status, list/update ignored docs, queue_doc_embedding, list/add/remove embedding files | Recherche vectorielle AFFiNE, pilotage du pipeline d'indexation |
 | **Meta** (1) | update_workspace_meta | Métadonnées workspace |
 | **Health** (1) | health_check | Diagnostic connexion |
 
@@ -81,7 +83,7 @@ En plus de l'API REST, ce projet fournit un **serveur MCP** permettant aux agent
 
 📖 **Guide complet** : [`docs/mcp-guide.md`](docs/mcp-guide.md)
 - Installation et configuration détaillée
-- Liste exhaustive des 31 outils avec paramètres
+- Liste exhaustive des 39 outils avec paramètres
 - Exemples d'utilisation pratiques
 - Troubleshooting (Windows, Linux, macOS)
 - Comparaison MCP vs REST API
@@ -100,7 +102,7 @@ Notre serveur MCP apporte des fonctionnalités absentes du serveur communautaire
 
 Analyse détaillée : [`docs/reference/affine-mcp-analysis.md`](docs/reference/affine-mcp-analysis.md)
 
-## 📚 API Endpoints REST (28 total)
+## 📚 API Endpoints REST (35+ total)
 
 ### Health Check
 ```bash
@@ -154,6 +156,18 @@ POST   /workspaces/:workspaceId/documents/:docId/move  # Déplacer document
 GET    /workspaces/:workspaceId/tags         # Lister tous les tags
 POST   /workspaces/:workspaceId/tags         # Créer un tag
 DELETE /workspaces/:workspaceId/tags/:tagId  # Supprimer un tag
+```
+
+### Copilot / Embeddings (8 endpoints - NOUVEAU)
+```bash
+GET    /workspaces/:workspaceId/copilot/status             # Suivre le ratio total vs indexé
+POST   /workspaces/:workspaceId/copilot/search             # Recherche sémantique (docs/files)
+GET    /workspaces/:workspaceId/copilot/ignored-docs       # Lister les docs ignorés
+PATCH  /workspaces/:workspaceId/copilot/ignored-docs       # Ajouter/retirer des docs ignorés
+POST   /workspaces/:workspaceId/copilot/queue              # Enfiler des docs pour re-embedding
+GET    /workspaces/:workspaceId/copilot/files              # Lister les fichiers embarqués
+POST   /workspaces/:workspaceId/copilot/files              # Uploader un fichier (base64)
+DELETE /workspaces/:workspaceId/copilot/files/:fileId      # Supprimer un fichier
 ```
 
 ### Workspace (1 endpoint)

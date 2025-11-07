@@ -30,6 +30,25 @@ This repository now ships with a reproducible smoke test that exercises the end-
 
 Le helper nettoie désormais l'environnement en supprimant la note créée via `AffineClient.deleteDocument`. Aucun passage manuel n'est nécessaire.
 
+## Copilot Embedding Smoke Test
+
+- **Path**: `scripts/run-copilot-embedding-smoke.ts`
+- **Execution**:
+  ```bash
+  AFFINE_EMAIL=<email> AFFINE_PASSWORD=<password> \
+    ./node_modules/.bin/tsx scripts/run-copilot-embedding-smoke.ts
+  ```
+- **Scénario** :
+  1. Localise le workspace `Robots in Love` (surchageable via `AFFINE_WORKSPACE_NAME`).
+  2. Garantit l'existence du dossier `Affine_API/Tests API` (création si nécessaire).
+  3. Crée une note contenant un token unique (`copilot-<timestamp>`).
+  4. Utilise l'API REST `/copilot/queue` puis `/copilot/search` via `server.inject()` pour vérifier que le document est bien indexé (polling jusqu'à 1 min).
+  5. Récupère le statut global (`/copilot/status`) et imprime un résumé JSON (workspace, docId, token, résultat de recherche, statut d'indexation).
+
+Ce script prouve l'intégration bout en bout Copilot/Embeddings sans dépendre d'outils externes.
+
+> **Prereq (prod AFFiNE)** : l’extension `vector` doit être déplacée dans le schéma `affine` ( `ALTER EXTENSION vector SET SCHEMA affine;` ) pour que Prisma résolve le type lors des requêtes `matchWorkspaceDocs`. Exemple de run validé le 2025‑11‑07 : doc `SxjNhXGckl3oz2RTVUc8p` avec token `copilot-mhonytp5` détecté (distance ≈0.25) et statut `total=59 / embedded=59`.
+
 ## Extending the Scenario
 
 - Add assertions on rendered Markdown by converting the Yjs blocks back to Markdown using `@affine/reader`.

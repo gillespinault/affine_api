@@ -3,12 +3,22 @@
 | Champ | Détail |
 | --- | --- |
 | Auteur | Codex |
-| Date | 2025-11-05 |
+| Date | 2025-11-05 (maj 2025-11-06) |
 | Statut | Draft |
 | Projet | `projects/notebooks_api` |
-| Source | Analyse `affine-mcp-server` et besoins API notebooks |
+| Source | Analyse `affine-mcp-server`, code source AFFiNE, arbitrages produit |
 
 ---
+
+## 0. Priorités & séquencement
+
+| Rang | Contenu | Livrables clés | Tests & preuve |
+| --- | --- | --- | --- |
+| 1 | **Surface Copilot/Embeddings** | REST + MCP pour `matchWorkspaceDocs/Files/All`, état `queryWorkspaceEmbeddingStatus`, gestion corpus (upload, ignored docs, queue). | Jeu de documents créé automatiquement dans `Robots in Love/Affine_API/Tests API`, requêtes de similarité qui renvoient ces documents. |
+| 2 | **Historique & recovery** | Listing des versions, restore ciblé, métriques idempotentes. | Script d’intégration qui crée un doc, le modifie 3×, restaure `v1` et vérifie le contenu via API. |
+| 3 | **Autres chantiers fonctionnels** | Workspace lifecycle, publication publique, commentaires, notifications, tokens, blobs/apply updates. | Chaque livraison crée/annote des docs de test dans le même workspace/folder, résultats tracés dans `docs/api-test-guide.md`. |
+
+Chaque priorité ajoute des endpoints REST, les miroirs MCP et un guide d’usage. Les jobs de validation utilisent uniquement l’API notebooks (pas d’action manuelle) et laissent une trace dans AFFiNE pour audit.
 
 ## 1. Contexte & Problème
 
@@ -16,10 +26,20 @@ Le serveur MCP `affine-mcp-server` expose via Claude/Codex des outils couvrant c
 
 ## 2. Objectifs
 
-1. CRUD commentaires + résolution (mode page & edgeless) via REST.
-2. Exposer l’historique de versions (listing + restore) pour automatiser les rollbacks.
-3. Gérer tokens personnels (création/ révocation) pour autogestion des accès.
-4. Lire / marquer notifications pour intégration avec nos outils (n8n, alerting).
+1. **Copilot / Embeddings (Priorité 1)**  
+   - Recherche sémantique native AFFiNE (`matchWorkspaceDocs`, `matchWorkspaceFiles`, `matchWorkspaceAll`) surfacée via REST/MCP.  
+   - Pilotage du pipeline d’indexation : statut, upload de fichiers à embarquer, liste des documents ignorés, relance ciblée (`queueWorkspaceEmbedding`).  
+   - Context sessions pour les agents (création, match scoped).
+2. **Historique & Recovery (Priorité 2)**  
+   - Exposer l’historique de versions avec restauration idempotente.  
+   - Journaliser les recoveries (docId, versionId, auteur) et fournir un endpoint de prévisualisation.
+3. **Autres fonctionnalités MCP à couvrir (Priorité 3)**  
+   - CRUD commentaires + résolution.  
+   - Publication/révocation publique des documents.  
+   - Notifications (list/read/mark-all).  
+   - Tokens personnels self-service.  
+   - Lifecycle workspace (create/update/delete) pour provisionner des sandboxes.  
+   - Blob storage + `apply_doc_updates` pour import/migrations à grande échelle.
 
 ### KPI
 - 100 % des opérations MCP correspondantes disponibles via REST.
@@ -68,8 +88,22 @@ Le serveur MCP `affine-mcp-server` expose via Claude/Codex des outils couvrant c
 - `POST /notifications/:notificationId/read`
 - `POST /notifications/read-all`
 
-### 6.5 Compatibilité MCP
-- Inputs/outputs alignés avec `affine-mcp-server` (`comments.ts`, `history.ts`, `accessTokens.ts`, `notifications.ts`).
+### 6.5 Publication publique
+- `POST /workspaces/:workspaceId/documents/:docId/publish`
+- `POST /workspaces/:workspaceId/documents/:docId/revoke`
+- Usage concret : automatiser la diffusion de docs (notes de version, comptes rendus) depuis CI/CD sans passer par l’UI.
+
+### 6.6 Lifecycle workspaces
+- `POST /workspaces` – bootstrap workspace + doc initial.
+- `PATCH /workspaces/:workspaceId` – mise à jour metadata (nom, options AI).
+- `DELETE /workspaces/:workspaceId` – nettoyage environnement sandbox.
+
+### 6.7 Blob storage & apply updates
+- Upload/suppression de blobs (`upload_blob`, `delete_blob`) pour automatiser l’ajout de fichiers volumineux.
+- `POST /workspaces/:workspaceId/documents/:docId/apply-updates` pour rejouer des diffs Yjs (migrations massives).
+
+### 6.8 Compatibilité MCP
+- Inputs/outputs alignés avec `affine-mcp-server` (`comments.ts`, `history.ts`, `accessTokens.ts`, `notifications.ts`, `publish.ts`, `workspaces.ts`, `blobs.ts`).
 - Réutiliser GraphQL ou REST internes selon les mutations en place.
 
 ## 7. Exigences Techniques
@@ -86,8 +120,14 @@ Le serveur MCP `affine-mcp-server` expose via Claude/Codex des outils couvrant c
 
 ## 9. Tests & Validation
 - Unit tests TB (transformations, payloads).
-- Intégration : workspace staging, doc dummy, commentaire round-trip.
-- Smoke test CLI (`scripts/run-affine-collaboration-test.ts`).
+- Intégration : workspace **Robots in Love**, dossier `Affine_API/Tests API`.  
+  Chaque feature crée via l’API un sous-dossier daté + documents/fichiers de preuve (ex : `copilot-search/query-001`), puis consigne les IDs retournés.
+- Scripts d’exemple (`scripts/run-affine-collaboration-test.ts`) qui :
+  1. Provisionne le jeu de données (création doc, upload fichier).  
+  2. Appelle l’endpoint ciblé.  
+  3. Vérifie la réponse (contenu, distances, statut).  
+  4. Journalise le résultat dans AFFiNE (note « Test run XYZ »).
+- Smoke test CLI réutilisable dans CI pour déclencher l’ensemble.
 
 ## 10. Monitoring
 - Métriques : `comments_created_total`, `history_recover_total`, `tokens_created_total`, `notifications_marked_total`.
@@ -97,11 +137,12 @@ Le serveur MCP `affine-mcp-server` expose via Claude/Codex des outils couvrant c
 
 | Phase | Contenu |
 | --- | --- |
-| 0 | Capturer requêtes GraphQL comment/history/tokens/notifications via UI |
-| 1 | Implémenter endpoints commentaires + tests |
-| 2 | Historique + restore |
-| 3 | Tokens + Notifications |
-| 4 | Docs OpenAPI + guide utilisateur |
+| 0 | Capturer requêtes GraphQL copilot (match/status/queue) + publication + workspace lifecycle |
+| 1 | **Priorité 1** – search copilot + gestion embeddings + context sessions |
+| 2 | **Priorité 2** – historique/recovery + monitoring |
+| 3 | **Priorité 3a** – commentaires + notifications + tokens |
+| 4 | **Priorité 3b** – publication publique + workspace lifecycle + blobs/apply-updates |
+| 5 | Docs OpenAPI + guide utilisateur + jeux de test automatisés |
 
 ## 12. Risques
 - Changements schema GraphQL AFFiNE → isoler ces appels dans `lib/gql`.

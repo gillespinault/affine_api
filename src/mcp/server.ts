@@ -225,6 +225,17 @@ function getStringArray(
   return result;
 }
 
+function decodeBase64Input(value: string): Buffer {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error('content cannot be empty');
+  }
+  const normalized = trimmed.includes(';base64,')
+    ? trimmed.slice(trimmed.indexOf(';base64,') + ';base64,'.length)
+    : trimmed;
+  return Buffer.from(normalized, 'base64');
+}
+
 function getNumber(
   args: Args,
   key: string,
@@ -630,6 +641,162 @@ const handleSearchDocuments: Handler = async args => {
   });
 };
 
+const handleCopilotSearch: Handler = async args => {
+  const workspaceId = getString(args, 'workspaceId', { required: true })!;
+  const query = getString(args, 'query', { required: true })!;
+  const scopeRaw = (getString(args, 'scope') ?? 'all').toLowerCase();
+  if (!['docs', 'files', 'all'].includes(scopeRaw)) {
+    throw new Error('scope must be one of docs, files, all');
+  }
+  const limit = getNumber(args, 'limit', { min: 1, max: 100 });
+  const threshold = getNumber(args, 'threshold', { min: 0, max: 1 });
+  const scopedThreshold = getNumber(args, 'scopedThreshold', { min: 0, max: 1 });
+  const contextId = getString(args, 'contextId');
+
+  const affine = await getClient();
+  const options = {
+    limit,
+    threshold,
+    scopedThreshold,
+    contextId: contextId && contextId.length > 0 ? contextId : undefined,
+  };
+
+  const docs =
+    scopeRaw === 'files' ? [] : await affine.matchWorkspaceDocs(workspaceId, query, options);
+  const files =
+    scopeRaw === 'docs' ? [] : await affine.matchWorkspaceFiles(workspaceId, query, options);
+
+  return success({
+    workspaceId,
+    query,
+    scope: scopeRaw,
+    limit: limit ?? null,
+    threshold: threshold ?? null,
+    scopedThreshold: scopedThreshold ?? null,
+    contextId: contextId ?? null,
+    docCount: docs.length,
+    fileCount: files.length,
+    docs,
+    files,
+  });
+};
+
+const handleCopilotEmbeddingStatus: Handler = async args => {
+  const workspaceId = getString(args, 'workspaceId', { required: true })!;
+  const affine = await getClient();
+  const status = await affine.queryWorkspaceEmbeddingStatus(workspaceId);
+  return success({ workspaceId, ...status });
+};
+
+const handleListIgnoredDocs: Handler = async args => {
+  const workspaceId = getString(args, 'workspaceId', { required: true })!;
+  const limit = getNumber(args, 'limit', { defaultValue: 20, min: 1, max: 100 }) ?? 20;
+  const offset = getNumber(args, 'offset', { defaultValue: 0, min: 0 }) ?? 0;
+
+  const affine = await getClient();
+  const data = await affine.listWorkspaceIgnoredDocs(workspaceId, {
+    first: limit,
+    offset,
+  });
+
+  return success({
+    workspaceId,
+    totalCount: data.totalCount,
+    pageInfo: data.pageInfo,
+    docs: data.items,
+  });
+};
+
+const handleUpdateIgnoredDocs: Handler = async args => {
+  const workspaceId = getString(args, 'workspaceId', { required: true })!;
+  const add = getStringArray(args, 'add') ?? [];
+  const remove = getStringArray(args, 'remove') ?? [];
+  if (!add.length && !remove.length) {
+    throw new Error('provide docIds to add and/or remove');
+  }
+
+  const affine = await getClient();
+  const count = await affine.updateWorkspaceIgnoredDocs(workspaceId, {
+    add: add.length ? add : undefined,
+    remove: remove.length ? remove : undefined,
+  });
+
+  return success({
+    workspaceId,
+    updated: count,
+    add,
+    remove,
+  });
+};
+
+const handleQueueDocEmbeddings: Handler = async args => {
+  const workspaceId = getString(args, 'workspaceId', { required: true })!;
+  const docIds = getStringArray(args, 'docIds', { required: true })!;
+  if (!docIds.length) {
+    throw new Error('docIds array cannot be empty');
+  }
+  const affine = await getClient();
+  await affine.queueWorkspaceEmbedding(workspaceId, docIds);
+  return success({
+    workspaceId,
+    queued: docIds,
+  });
+};
+
+const handleListEmbeddingFiles: Handler = async args => {
+  const workspaceId = getString(args, 'workspaceId', { required: true })!;
+  const limit = getNumber(args, 'limit', { defaultValue: 20, min: 1, max: 100 }) ?? 20;
+  const offset = getNumber(args, 'offset', { defaultValue: 0, min: 0 }) ?? 0;
+
+  const affine = await getClient();
+  const data = await affine.listWorkspaceEmbeddingFiles(workspaceId, {
+    first: limit,
+    offset,
+  });
+
+  return success({
+    workspaceId,
+    totalCount: data.totalCount,
+    pageInfo: data.pageInfo,
+    files: data.items,
+  });
+};
+
+const handleAddEmbeddingFile: Handler = async args => {
+  const workspaceId = getString(args, 'workspaceId', { required: true })!;
+  const fileName = getString(args, 'fileName', { required: true })!;
+  const mimeType = getString(args, 'mimeType');
+  const content = getString(args, 'content', { required: true })!;
+
+  const buffer = decodeBase64Input(content);
+  if (!buffer.length) {
+    throw new Error('decoded file content is empty');
+  }
+
+  const affine = await getClient();
+  const file = await affine.addWorkspaceEmbeddingFile(workspaceId, {
+    fileName,
+    content: buffer,
+    mimeType: mimeType ?? undefined,
+  });
+
+  return success({
+    workspaceId,
+    file,
+  });
+};
+
+const handleRemoveEmbeddingFile: Handler = async args => {
+  const workspaceId = getString(args, 'workspaceId', { required: true })!;
+  const fileId = getString(args, 'fileId', { required: true })!;
+  const affine = await getClient();
+  await affine.removeWorkspaceEmbeddingFile(workspaceId, fileId);
+  return success({
+    workspaceId,
+    fileId,
+    removed: true,
+  });
+};
 const handleAddBlock: Handler = async args => {
   const workspaceId = getString(args, 'workspaceId', { required: true })!;
   const docId = getString(args, 'docId', { required: true })!;
@@ -1070,6 +1237,162 @@ const toolDefinitions: ToolDefinition[] = [
       ['query'],
     ),
     handleSearchDocuments,
+  ),
+  makeTool(
+    'copilot_search',
+    'Copilot Semantic Search',
+    'Run AFFiNE Copilot semantic search across workspace documents and files.',
+    workspaceSchema(
+      {
+        query: { type: 'string', description: 'Full-text or semantic query string.' },
+        scope: {
+          type: 'string',
+          enum: ['docs', 'files', 'all'],
+          description: 'Which indexes to query (default: all).',
+        },
+        limit: {
+          type: 'number',
+          minimum: 1,
+          maximum: 100,
+          description: 'Maximum number of matches per index.',
+        },
+        threshold: {
+          type: 'number',
+          minimum: 0,
+          maximum: 1,
+          description: 'Similarity threshold for global matches.',
+        },
+        scopedThreshold: {
+          type: 'number',
+          minimum: 0,
+          maximum: 1,
+          description: 'Stricter threshold applied to scoped/doc-specific matches.',
+        },
+        contextId: {
+          type: 'string',
+          description: 'Optional Copilot context ID to scope the search.',
+        },
+      },
+      ['query'],
+    ),
+    handleCopilotSearch,
+  ),
+  makeTool(
+    'copilot_embedding_status',
+    'Copilot Embedding Status',
+    'Return the total vs indexed count for workspace embeddings.',
+    workspaceSchema(),
+    handleCopilotEmbeddingStatus,
+  ),
+  makeTool(
+    'list_embedding_ignored_docs',
+    'List Ignored Docs (Embeddings)',
+    'List documents that are excluded from Copilot embeddings.',
+    workspaceSchema({
+      limit: {
+        type: 'number',
+        minimum: 1,
+        maximum: 100,
+        description: 'Page size (default 20).',
+      },
+      offset: {
+        type: 'number',
+        minimum: 0,
+        description: 'Pagination offset (default 0).',
+      },
+    }),
+    handleListIgnoredDocs,
+  ),
+  makeTool(
+    'update_embedding_ignored_docs',
+    'Update Ignored Docs (Embeddings)',
+    'Add or remove documents from the ignored set.',
+    workspaceSchema({
+      add: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Doc IDs to add to the ignored list.',
+      },
+      remove: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Doc IDs to remove from the ignored list.',
+      },
+    }),
+    handleUpdateIgnoredDocs,
+  ),
+  makeTool(
+    'queue_doc_embedding',
+    'Queue Doc Embedding',
+    'Enqueue documents for re-embedding.',
+    workspaceSchema(
+      {
+        docIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Document IDs to enqueue.',
+        },
+      },
+      ['docIds'],
+    ),
+    handleQueueDocEmbeddings,
+  ),
+  makeTool(
+    'list_embedding_files',
+    'List Embedding Files',
+    'List uploaded files that feed Copilot embeddings.',
+    workspaceSchema({
+      limit: {
+        type: 'number',
+        minimum: 1,
+        maximum: 100,
+        description: 'Page size (default 20).',
+      },
+      offset: {
+        type: 'number',
+        minimum: 0,
+        description: 'Pagination offset (default 0).',
+      },
+    }),
+    handleListEmbeddingFiles,
+  ),
+  makeTool(
+    'add_embedding_file',
+    'Add Embedding File',
+    'Upload a file (base64) to enrich workspace embeddings.',
+    workspaceSchema(
+      {
+        fileName: {
+          type: 'string',
+          description: 'File name as it should appear in AFFiNE.',
+        },
+        content: {
+          type: 'string',
+          description: 'Base64 encoded file content (data URLs supported).',
+        },
+        mimeType: {
+          type: 'string',
+          description: 'Optional MIME type override (defaults to application/octet-stream).',
+        },
+      },
+      ['fileName', 'content'],
+    ),
+    handleAddEmbeddingFile,
+  ),
+  makeTool(
+    'remove_embedding_file',
+    'Remove Embedding File',
+    'Delete an uploaded embedding file (embeddings will be cascaded).',
+    workspaceSchema(
+      {
+        fileId: {
+          type: 'string',
+          description: 'Identifier of the file to delete.',
+        },
+      },
+      ['fileId'],
+    ),
+    handleRemoveEmbeddingFile,
   ),
 
   // Blocks

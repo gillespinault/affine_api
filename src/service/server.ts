@@ -56,6 +56,19 @@ function normalizeTags(value: unknown): string[] | undefined {
   return tags;
 }
 
+function decodeBase64Payload(value: string): Buffer {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error('content payload cannot be empty');
+  }
+  const base64 = trimmed.includes(';base64,')
+    ? trimmed.slice(trimmed.indexOf(';base64,') + ';base64,'.length)
+    : trimmed;
+  return Buffer.from(base64, 'base64');
+}
+
+const MAX_EMBEDDING_FILE_BYTES = 10 * 1024 * 1024;
+
 export function createServer(config: ServerConfig = {}): FastifyInstance {
   const app = Fastify({
     logger: config.logger ?? true,
@@ -785,6 +798,303 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
         const result = await client.deleteEdgelessElement(workspaceId, docId, elementId);
 
         reply.code(200).send(result);
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
+  // ============================================================================
+  // Copilot / Embeddings API
+  // ============================================================================
+
+  app.post('/workspaces/:workspaceId/copilot/search', async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+    const body = (request.body ?? {}) as {
+      query?: string;
+      scope?: 'docs' | 'files' | 'all';
+      limit?: number;
+      threshold?: number;
+      scopedThreshold?: number;
+      contextId?: string;
+    };
+
+    const query = body.query?.trim();
+    if (!query) {
+      reply.code(400).send({ error: 'query is required' });
+      return;
+    }
+
+    const scope = (body.scope ?? 'all').toLowerCase();
+    if (!['docs', 'files', 'all'].includes(scope)) {
+      reply.code(400).send({ error: 'scope must be one of docs, files, all' });
+      return;
+    }
+
+    const options = {
+      limit: typeof body.limit === 'number' ? body.limit : undefined,
+      threshold: typeof body.threshold === 'number' ? body.threshold : undefined,
+      scopedThreshold:
+        typeof body.scopedThreshold === 'number' ? body.scopedThreshold : undefined,
+      contextId:
+        typeof body.contextId === 'string' && body.contextId.trim().length > 0
+          ? body.contextId.trim()
+          : undefined,
+    };
+
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+    const client = createClient(config);
+
+    try {
+      await client.signIn(email, password);
+
+      let docs = [];
+      let files = [];
+      if (scope === 'docs' || scope === 'all') {
+        docs = await client.matchWorkspaceDocs(workspaceId, query, options);
+      }
+      if (scope === 'files' || scope === 'all') {
+        files = await client.matchWorkspaceFiles(workspaceId, query, options);
+      }
+
+      reply.send({
+        workspaceId,
+        query,
+        scope,
+        limit: options.limit ?? null,
+        threshold: options.threshold ?? null,
+        scopedThreshold: options.scopedThreshold ?? null,
+        contextId: options.contextId ?? null,
+        docCount: docs.length,
+        fileCount: files.length,
+        docs,
+        files,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  app.get('/workspaces/:workspaceId/copilot/status', async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+    const client = createClient(config);
+
+    try {
+      await client.signIn(email, password);
+      const status = await client.queryWorkspaceEmbeddingStatus(workspaceId);
+      reply.send({ workspaceId, ...status });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  app.get('/workspaces/:workspaceId/copilot/ignored-docs', async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+    const { first, offset } = request.query as {
+      first?: string;
+      offset?: string;
+    };
+    const limit = first ? Number.parseInt(first, 10) : undefined;
+    const skip = offset ? Number.parseInt(offset, 10) : undefined;
+
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+    const client = createClient(config);
+
+    try {
+      await client.signIn(email, password);
+      const data = await client.listWorkspaceIgnoredDocs(workspaceId, {
+        first: limit,
+        offset: skip,
+      });
+      reply.send({ workspaceId, ...data });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  app.patch('/workspaces/:workspaceId/copilot/ignored-docs', async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+    const body = (request.body ?? {}) as { add?: unknown; remove?: unknown };
+
+    const add = Array.isArray(body.add)
+      ? body.add.filter((value): value is string => typeof value === 'string' && value.trim().length)
+      : [];
+    const remove = Array.isArray(body.remove)
+      ? body.remove.filter(
+          (value): value is string => typeof value === 'string' && value.trim().length,
+        )
+      : [];
+
+    if (!add.length && !remove.length) {
+      reply
+        .code(400)
+        .send({ error: 'provide at least one docId to add or remove from ignored docs' });
+      return;
+    }
+
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+    const client = createClient(config);
+
+    try {
+      await client.signIn(email, password);
+      const updated = await client.updateWorkspaceIgnoredDocs(workspaceId, {
+        add: add.length ? add : undefined,
+        remove: remove.length ? remove : undefined,
+      });
+      reply.send({ workspaceId, updated });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  app.post('/workspaces/:workspaceId/copilot/queue', async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+    const body = (request.body ?? {}) as { docIds?: unknown };
+
+    const docIds = Array.isArray(body.docIds)
+      ? body.docIds
+          .filter((value): value is string => typeof value === 'string' && value.trim().length)
+          .map(value => value.trim())
+      : [];
+
+    if (!docIds.length) {
+      reply.code(400).send({ error: 'docIds array with at least one entry is required' });
+      return;
+    }
+
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+    const client = createClient(config);
+
+    try {
+      await client.signIn(email, password);
+      await client.queueWorkspaceEmbedding(workspaceId, docIds);
+      reply.send({ workspaceId, queued: docIds });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  app.get('/workspaces/:workspaceId/copilot/files', async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+    const { first, offset } = request.query as {
+      first?: string;
+      offset?: string;
+    };
+    const limit = first ? Number.parseInt(first, 10) : undefined;
+    const skip = offset ? Number.parseInt(offset, 10) : undefined;
+
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+    const client = createClient(config);
+
+    try {
+      await client.signIn(email, password);
+      const data = await client.listWorkspaceEmbeddingFiles(workspaceId, {
+        first: limit,
+        offset: skip,
+      });
+      reply.send({ workspaceId, ...data });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  app.post('/workspaces/:workspaceId/copilot/files', async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+    const body = (request.body ?? {}) as {
+      fileName?: string;
+      content?: string;
+      contentBase64?: string;
+      mimeType?: string;
+    };
+
+    const fileName = body.fileName?.trim();
+    if (!fileName) {
+      reply.code(400).send({ error: 'fileName is required' });
+      return;
+    }
+
+    const payload = body.content ?? body.contentBase64;
+    if (typeof payload !== 'string') {
+      reply.code(400).send({ error: 'content (base64) is required' });
+      return;
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = decodeBase64Payload(payload);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'invalid base64 payload';
+      reply.code(400).send({ error: message });
+      return;
+    }
+
+    if (buffer.length > MAX_EMBEDDING_FILE_BYTES) {
+      reply.code(413).send({
+        error: `file too large: max ${MAX_EMBEDDING_FILE_BYTES} bytes`,
+      });
+      return;
+    }
+
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+    const client = createClient(config);
+
+    try {
+      await client.signIn(email, password);
+      const file = await client.addWorkspaceEmbeddingFile(workspaceId, {
+        fileName,
+        content: buffer,
+        mimeType: body.mimeType,
+      });
+      reply.code(201).send(file);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  app.delete(
+    '/workspaces/:workspaceId/copilot/files/:fileId',
+    async (request, reply) => {
+      const { workspaceId, fileId } = request.params as {
+        workspaceId: string;
+        fileId: string;
+      };
+      if (!fileId || !fileId.trim()) {
+        reply.code(400).send({ error: 'fileId is required' });
+        return;
+      }
+
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+      const client = createClient(config);
+
+      try {
+        await client.signIn(email, password);
+        await client.removeWorkspaceEmbeddingFile(workspaceId, fileId);
+        reply.code(204).send();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        reply.code(500).send({ error: message });
       } finally {
         await client.disconnect();
       }

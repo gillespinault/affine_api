@@ -23,7 +23,7 @@
 
 ## 1. Introduction
 
-Le **serveur MCP AFFiNE Notebooks** expose 31 outils via le protocole [Model Context Protocol](https://modelcontextprotocol.io) pour permettre aux agents IA (Claude Code, Claude Desktop, Cline, etc.) de manipuler programmatiquement des workspaces, documents, blocs, dossiers, tags et éléments Edgeless dans AFFiNE.
+Le **serveur MCP AFFiNE Notebooks** expose 39 outils via le protocole [Model Context Protocol](https://modelcontextprotocol.io) pour permettre aux agents IA (Claude Code, Claude Desktop, Cline, etc.) de manipuler programmatiquement des workspaces, documents, blocs, dossiers, tags, éléments Edgeless et les embeddings Copilot dans AFFiNE.
 
 ### Différences avec affine-mcp-server (DAWNCR0W)
 
@@ -129,7 +129,7 @@ Le serveur MCP sera compilé dans \`dist/mcp/start.js\` avec le binaire \`bin/af
 
 ---
 
-## 4. Liste des outils MCP (31 outils)
+## 4. Liste des outils MCP (39 outils)
 
 ### 4.1 Health (1 outil)
 
@@ -182,6 +182,17 @@ Le serveur MCP sera compilé dans \`dist/mcp/start.js\` avec le binaire \`bin/af
 ### 4.8 Workspace Meta (1 outil)
 
 - **\`update_workspace_meta\`** : Mettre à jour métadonnées
+
+### 4.9 Copilot / Embeddings (8 outils)
+
+- **\`copilot_search\`** : Recherche sémantique (docs/files) via les embeddings AFFiNE
+- **\`copilot_embedding_status\`** : Statistiques total vs indexé d’un workspace
+- **\`list_embedding_ignored_docs\`** : Lister les documents exclus de l’index
+- **\`update_embedding_ignored_docs\`** : Ajouter/retirer des docIds ignorés
+- **\`queue_doc_embedding\`** : Enfiler des documents pour re-embedding
+- **\`list_embedding_files\`** : Inventorier les fichiers/attachments indexés
+- **\`add_embedding_file\`** : Uploader un fichier (base64 ou data URL)
+- **\`remove_embedding_file\`** : Supprimer un fichier et ses embeddings associés
 
 Voir documentation complète de chaque outil dans le guide complet.
 
