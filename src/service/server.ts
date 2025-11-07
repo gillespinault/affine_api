@@ -13,7 +13,7 @@ type DocumentPayload = {
   primaryMode?: 'page' | 'edgeless';
 };
 
-type CommentMode = 'Page' | 'Edgeless';
+type CommentMode = 'page' | 'edgeless';
 
 export interface CredentialProvider {
   getCredentials(workspaceId: string): Promise<{ email: string; password: string }>;
@@ -64,10 +64,10 @@ function normalizeCommentMode(value: unknown): CommentMode | undefined {
   }
   const normalized = value.trim().toLowerCase();
   if (normalized === 'page') {
-    return 'Page';
+    return 'page';
   }
   if (normalized === 'edgeless') {
-    return 'Edgeless';
+    return 'edgeless';
   }
   return undefined;
 }

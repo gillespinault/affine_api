@@ -113,7 +113,7 @@ describe('AffineClient collaboration helpers', () => {
         expect(variables?.input).toMatchObject({
           workspaceId: 'workspace-1',
           docId: 'doc-1',
-          docMode: 'Page',
+          docMode: 'page',
           docTitle: '',
         });
         return {
@@ -129,30 +129,30 @@ describe('AffineClient collaboration helpers', () => {
         };
       },
       ({ variables }) => {
-        expect(variables).toMatchObject({ first: 10 });
+        expect(variables).toMatchObject({ pagination: { first: 10, offset: 0 } });
         return {
           currentUser: {
             notifications: {
-              nodes: [
+              edges: [
                 {
-                  id: 'notif-1',
-                  type: 'comment',
-                  title: 'New comment',
-                  body: 'You were mentioned',
-                  read: false,
-                  createdAt: '2025-11-08T11:00:00Z',
+                  node: {
+                    id: 'notif-1',
+                    type: 'comment',
+                    read: false,
+                    createdAt: '2025-11-08T11:00:00Z',
+                  },
                 },
                 {
-                  id: 'notif-2',
-                  type: 'system',
-                  title: 'Weekly digest',
-                  body: 'Summary',
-                  read: true,
-                  createdAt: '2025-11-07T11:00:00Z',
+                  node: {
+                    id: 'notif-2',
+                    type: 'system',
+                    read: true,
+                    createdAt: '2025-11-07T11:00:00Z',
+                  },
                 },
               ],
               totalCount: 2,
-              pageInfo: { hasNextPage: false },
+              pageInfo: { hasNextPage: false, endCursor: null },
             },
           },
         };

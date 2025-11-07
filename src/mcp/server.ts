@@ -326,16 +326,16 @@ function parsePosition(value: unknown): 'start' | 'end' | number | undefined {
   throw new Error('position must be "start", "end", or a number.');
 }
 
-function normalizeDocModeInput(value?: string | null): 'Page' | 'Edgeless' | undefined {
+function normalizeDocModeInput(value?: string | null): 'page' | 'edgeless' | undefined {
   if (!value) {
     return undefined;
   }
   const normalized = value.trim().toLowerCase();
   if (normalized === 'page') {
-    return 'Page';
+    return 'page';
   }
   if (normalized === 'edgeless') {
-    return 'Edgeless';
+    return 'edgeless';
   }
   throw new Error('docMode must be either "page" or "edgeless".');
 }
@@ -1548,8 +1548,8 @@ const toolDefinitions: ToolDefinition[] = [
         },
         docMode: {
           type: 'string',
-          enum: ['page', 'edgeless', 'Page', 'Edgeless'],
-          description: 'Document mode (Page or Edgeless).',
+          enum: ['page', 'edgeless'],
+          description: 'Document mode (page or edgeless).',
         },
         content: {
           type: ['object', 'string'],

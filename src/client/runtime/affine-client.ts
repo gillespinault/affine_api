@@ -2718,7 +2718,7 @@ export class AffineClient {
       docId: string;
       content: unknown;
       docTitle?: string;
-      docMode?: 'Page' | 'Edgeless';
+      docMode?: 'page' | 'edgeless';
       mentions?: string[];
     },
   ): Promise<DocumentComment> {
@@ -2755,7 +2755,7 @@ export class AffineClient {
       docId: input.docId,
       content: input.content,
       docTitle: input.docTitle ?? '',
-      docMode: input.docMode ?? 'Page',
+      docMode: input.docMode ?? 'page',
       mentions: input.mentions,
     };
 
