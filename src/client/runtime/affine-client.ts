@@ -3470,4 +3470,92 @@ export class AffineClient {
       subfolders,
     };
   }
+
+  // ============================================================================
+  // Blob & Image Operations
+  // ============================================================================
+
+  /**
+   * Upload a file to workspace blob storage.
+   * Returns the blob key (used as sourceId for image blocks).
+   */
+  async uploadBlob(
+    workspaceId: string,
+    file: { fileName: string; content: Buffer; mimeType?: string },
+  ): Promise<string> {
+    const query = `
+      mutation setBlob($workspaceId: String!, $blob: Upload!) {
+        setBlob(workspaceId: $workspaceId, blob: $blob)
+      }
+    `;
+
+    const result = await this.graphqlMultipart<{
+      setBlob: string;
+    }>(query, { workspaceId, blob: null }, [
+      {
+        variableName: 'blob',
+        fileName: file.fileName,
+        content: file.content,
+        mimeType: file.mimeType ?? 'application/octet-stream',
+      },
+    ]);
+
+    return result.setBlob;
+  }
+
+  /**
+   * Add an image block to a document.
+   * First uploads the image to blob storage, then creates the image block.
+   *
+   * @param workspaceId - Workspace identifier
+   * @param docId - Document identifier
+   * @param options.parentBlockId - Parent block ID (usually the note block)
+   * @param options.image - Image data (fileName, content buffer, mimeType)
+   * @param options.caption - Optional image caption
+   * @param options.width - Optional width in pixels
+   * @param options.height - Optional height in pixels
+   * @param options.position - Position among siblings ('start', 'end', or index)
+   */
+  async addImageBlock(
+    workspaceId: string,
+    docId: string,
+    options: {
+      parentBlockId: string;
+      image: { fileName: string; content: Buffer; mimeType?: string };
+      caption?: string;
+      width?: number;
+      height?: number;
+      position?: 'start' | 'end' | number;
+    },
+  ): Promise<{ blockId: string; blobId: string }> {
+    // Step 1: Upload image to blob storage
+    const blobId = await this.uploadBlob(workspaceId, options.image);
+
+    // Step 2: Create image block with sourceId pointing to blob
+    const props: Record<string, unknown> = {
+      sourceId: blobId,
+    };
+
+    if (options.caption) {
+      props.caption = options.caption;
+    }
+    if (typeof options.width === 'number') {
+      props.width = options.width;
+    }
+    if (typeof options.height === 'number') {
+      props.height = options.height;
+    }
+
+    const result = await this.addBlock(workspaceId, docId, {
+      flavour: 'affine:image',
+      parentBlockId: options.parentBlockId,
+      props,
+      position: options.position,
+    });
+
+    return {
+      blockId: result.blockId,
+      blobId,
+    };
+  }
 }

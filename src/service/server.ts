@@ -375,6 +375,169 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     },
   );
 
+  // ============================================================================
+  // Blob & Image Endpoints
+  // ============================================================================
+
+  /**
+   * Upload a blob to workspace storage.
+   * POST /workspaces/:workspaceId/blobs
+   * Body: { fileName: string, content: string (base64), mimeType?: string }
+   * Returns: { blobId: string }
+   */
+  app.post('/workspaces/:workspaceId/blobs', async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+    const body = (request.body ?? {}) as {
+      fileName?: string;
+      content?: string;
+      mimeType?: string;
+    };
+
+    const fileName = body.fileName?.trim();
+    if (!fileName) {
+      reply.code(400).send({ error: 'fileName is required' });
+      return;
+    }
+
+    if (typeof body.content !== 'string') {
+      reply.code(400).send({ error: 'content (base64) is required' });
+      return;
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = decodeBase64Payload(body.content);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'invalid base64 payload';
+      reply.code(400).send({ error: message });
+      return;
+    }
+
+    if (buffer.length > MAX_EMBEDDING_FILE_BYTES) {
+      reply.code(413).send({
+        error: `file too large: max ${MAX_EMBEDDING_FILE_BYTES} bytes`,
+      });
+      return;
+    }
+
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+    const client = createClient(config);
+
+    try {
+      await client.signIn(email, password);
+      const blobId = await client.uploadBlob(workspaceId, {
+        fileName,
+        content: buffer,
+        mimeType: body.mimeType,
+      });
+      reply.code(201).send({ blobId, workspaceId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  /**
+   * Upload an image and add it as an image block to a document.
+   * POST /workspaces/:workspaceId/documents/:docId/images
+   * Body: {
+   *   parentBlockId: string,
+   *   fileName: string,
+   *   content: string (base64),
+   *   mimeType?: string,
+   *   caption?: string,
+   *   width?: number,
+   *   height?: number,
+   *   position?: 'start' | 'end' | number
+   * }
+   * Returns: { blockId: string, blobId: string }
+   */
+  app.post(
+    '/workspaces/:workspaceId/documents/:docId/images',
+    async (request, reply) => {
+      const { workspaceId, docId } = request.params as {
+        workspaceId: string;
+        docId: string;
+      };
+      const body = (request.body ?? {}) as {
+        parentBlockId?: string;
+        fileName?: string;
+        content?: string;
+        mimeType?: string;
+        caption?: string;
+        width?: number;
+        height?: number;
+        position?: 'start' | 'end' | number;
+      };
+
+      // Validate required fields
+      if (!body.parentBlockId?.trim()) {
+        reply.code(400).send({ error: 'parentBlockId is required' });
+        return;
+      }
+      const fileName = body.fileName?.trim();
+      if (!fileName) {
+        reply.code(400).send({ error: 'fileName is required' });
+        return;
+      }
+      if (typeof body.content !== 'string') {
+        reply.code(400).send({ error: 'content (base64) is required' });
+        return;
+      }
+
+      let buffer: Buffer;
+      try {
+        buffer = decodeBase64Payload(body.content);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'invalid base64 payload';
+        reply.code(400).send({ error: message });
+        return;
+      }
+
+      if (buffer.length > MAX_EMBEDDING_FILE_BYTES) {
+        reply.code(413).send({
+          error: `file too large: max ${MAX_EMBEDDING_FILE_BYTES} bytes`,
+        });
+        return;
+      }
+
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+      const client = createClient(config);
+
+      try {
+        await client.signIn(email, password);
+        await client.connectSocket();
+
+        const result = await client.addImageBlock(workspaceId, docId, {
+          parentBlockId: body.parentBlockId.trim(),
+          image: {
+            fileName,
+            content: buffer,
+            mimeType: body.mimeType,
+          },
+          caption: body.caption,
+          width: body.width,
+          height: body.height,
+          position: body.position,
+        });
+
+        reply.code(201).send({
+          blockId: result.blockId,
+          blobId: result.blobId,
+          workspaceId,
+          docId,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        reply.code(500).send({ error: message });
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
   app.patch('/workspaces/:workspaceId/documents/:docId', async (request, reply) => {
     const { workspaceId, docId } = request.params as { workspaceId: string; docId: string };
     const body = (request.body ?? {}) as DocumentPayload;
