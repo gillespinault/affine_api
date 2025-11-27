@@ -122,6 +122,8 @@ const MAX_EMBEDDING_FILE_BYTES = 10 * 1024 * 1024;
 export function createServer(config: ServerConfig = {}): FastifyInstance {
   const app = Fastify({
     logger: config.logger ?? true,
+    // Allow large base64 payloads for file uploads (base64 adds ~33% overhead)
+    bodyLimit: 15 * 1024 * 1024, // 15MB to accommodate 10MB files in base64
   });
   const credentialProvider = config.credentialProvider ?? new EnvCredentialProvider();
 
