@@ -104,6 +104,109 @@ paths:
       responses:
         '204':
           description: Document deleted
+  /workspaces/{workspaceId}/blobs:
+    post:
+      summary: Upload a file to blob storage
+      operationId: uploadBlob
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - fileName
+                - content
+              properties:
+                fileName:
+                  type: string
+                  description: Name of the file
+                content:
+                  type: string
+                  description: Base64-encoded file content (data URI supported)
+                mimeType:
+                  type: string
+                  description: MIME type of the file
+      responses:
+        '201':
+          description: Blob uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  blobId:
+                    type: string
+                  workspaceId:
+                    type: string
+        '413':
+          description: File too large (max 10MB)
+  /workspaces/{workspaceId}/documents/{docId}/images:
+    post:
+      summary: Upload image and create image block
+      operationId: addImageBlock
+      description: Uploads an image to blob storage and creates an affine:image block in the document
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/DocumentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - parentBlockId
+                - fileName
+                - content
+              properties:
+                parentBlockId:
+                  type: string
+                  description: ID of the parent block (usually affine:note)
+                fileName:
+                  type: string
+                  description: Name of the image file
+                content:
+                  type: string
+                  description: Base64-encoded image content
+                mimeType:
+                  type: string
+                  description: MIME type (e.g., image/png)
+                caption:
+                  type: string
+                  description: Optional image caption
+                width:
+                  type: integer
+                  description: Optional width in pixels
+                height:
+                  type: integer
+                  description: Optional height in pixels
+                position:
+                  oneOf:
+                    - type: string
+                      enum: [start, end]
+                    - type: integer
+                  description: Position among siblings
+      responses:
+        '201':
+          description: Image block created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  blockId:
+                    type: string
+                  blobId:
+                    type: string
+                  workspaceId:
+                    type: string
+                  docId:
+                    type: string
+        '413':
+          description: File too large (max 10MB)
 components:
   parameters:
     WorkspaceId:

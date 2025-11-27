@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-11-27
+
+### Added
+
+- **Blob Storage API** : Upload fichiers au blob storage AFFiNE
+  - `POST /workspaces/:workspaceId/blobs` - Upload blob brut
+  - Client method: `uploadBlob(workspaceId, { fileName, content, mimeType })`
+  - Utilise la mutation GraphQL `setBlob`
+
+- **Image Blocks** : Support complet pour les images dans les documents
+  - `POST /workspaces/:workspaceId/documents/:docId/images` - Upload image + création bloc
+  - Client method: `addImageBlock(workspaceId, docId, { parentBlockId, image, caption, width, height, position })`
+  - Crée des blocs `affine:image` avec `sourceId` pointant vers le blob storage
+  - Supporte caption, dimensions, et positionnement
+
+### Technical Details
+
+- Les images AFFiNE nécessitent 2 étapes : upload blob → création bloc avec sourceId
+- `addImageBlock()` combine les deux opérations en une seule
+- Limite de taille : 10 MB par fichier (base64)
+- Format ImageBlockProps BlockSuite : `{ sourceId, caption, width, height, rotate, size }`
+
 ## [0.3.1] - 2025-11-07
 
 ### Added

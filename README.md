@@ -36,6 +36,7 @@ En plus de l'API REST, ce projet fournit un **serveur MCP** permettant aux agent
 | **Workspaces** (5) | list_workspaces, get_workspace, get_hierarchy | Navigation complète workspaces + folders + subdocs |
 | **Documents** (8) | create_document, update_document, search_documents | Import Markdown, CRUD complet, recherche |
 | **Blocks** (3) | add_block, update_block, delete_block | Ajout paragraphes, listes, code blocks |
+| **Blobs & Images** (2) | upload_blob, add_image_block | Upload images, créer blocs affine:image |
 | **Edgeless Canvas** (5) | create_edgeless_element, list_elements | Créer shapes, connectors, flowcharts |
 | **Folders** (1) | create_folder | Organiser documents |
 | **Tags** (3) | list_tags, create_tag, delete_tag | Gestion tags |
@@ -139,6 +140,12 @@ PATCH  /workspaces/:workspaceId/documents/:docId/properties  # Modifier tags
 POST   /workspaces/:workspaceId/documents/:docId/blocks           # Ajouter un bloc
 PATCH  /workspaces/:workspaceId/documents/:docId/blocks/:blockId  # Modifier un bloc
 DELETE /workspaces/:workspaceId/documents/:docId/blocks/:blockId  # Supprimer un bloc
+```
+
+### Blobs & Images (2 endpoints - NOUVEAU)
+```bash
+POST   /workspaces/:workspaceId/blobs                             # Upload fichier au blob storage
+POST   /workspaces/:workspaceId/documents/:docId/images           # Upload image + créer bloc affine:image
 ```
 
 ### Edgeless Mode (5 endpoints - ✅ FONCTIONNEL)
@@ -909,6 +916,102 @@ AFFiNE utilise un registre centralisé de tags (probablement dans `workspace met
 - [ ] Reverse engineering du format `tagOptions` dans AFFiNE
 - [ ] Implémentation de la création complète de tags (registre + documents)
 - [ ] Support des couleurs et métadonnées de tags
+
+### Blobs & Images (✅ NOUVEAU)
+
+Support complet pour l'upload d'images dans les documents AFFiNE.
+
+#### Architecture
+
+Les images dans AFFiNE utilisent le **blob storage** :
+1. L'image est uploadée au blob storage → retourne un `blobId`
+2. Un bloc `affine:image` est créé avec `sourceId` pointant vers le blob
+
+#### Upload d'image dans un document
+
+```bash
+# Endpoint combiné : upload blob + création bloc image
+curl -X POST https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/documents/DOC_ID/images \
+  -H "Content-Type: application/json" \
+  -d '{
+    "parentBlockId": "note-block-id",
+    "fileName": "my-image.png",
+    "content": "<base64-encoded-image>",
+    "mimeType": "image/png",
+    "caption": "Description de l image"
+  }'
+```
+
+**Paramètres** :
+- `parentBlockId` (requis) : ID du bloc parent (généralement `affine:note`)
+- `fileName` (requis) : Nom du fichier
+- `content` (requis) : Image encodée en base64 (supporte data URI)
+- `mimeType` (optionnel) : Type MIME (défaut: `application/octet-stream`)
+- `caption` (optionnel) : Légende de l'image
+- `width` / `height` (optionnel) : Dimensions en pixels
+- `position` (optionnel) : `"start"`, `"end"` ou index numérique
+
+**Réponse** :
+```json
+{
+  "blockId": "ijA4x7THkELwOQM5JSubH",
+  "blobId": "my-image.png",
+  "workspaceId": "...",
+  "docId": "..."
+}
+```
+
+#### Upload blob brut
+
+Pour uploader un fichier sans créer de bloc :
+
+```bash
+curl -X POST https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/blobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fileName": "file.pdf",
+    "content": "<base64-encoded-content>",
+    "mimeType": "application/pdf"
+  }'
+```
+
+**Réponse** :
+```json
+{
+  "blobId": "file.pdf",
+  "workspaceId": "..."
+}
+```
+
+#### Exemple complet avec Python
+
+```python
+import base64
+import requests
+
+# 1. Lire et encoder l'image
+with open("image.png", "rb") as f:
+    image_b64 = base64.b64encode(f.read()).decode()
+
+# 2. Obtenir le parentBlockId (bloc note du document)
+# Via MCP: mcp__affine-notebooks__get_document_content()
+# Chercher le bloc avec flavour == "affine:note"
+
+# 3. Uploader l'image
+response = requests.post(
+    f"https://affine-api.robotsinlove.be/workspaces/{workspace_id}/documents/{doc_id}/images",
+    json={
+        "parentBlockId": note_block_id,
+        "fileName": "image.png",
+        "content": image_b64,
+        "mimeType": "image/png",
+        "caption": "Mon image"
+    }
+)
+print(response.json())  # {"blockId": "...", "blobId": "..."}
+```
+
+**Limite de taille** : 10 MB par fichier (encodé en base64)
 
 ### Mode Edgeless / Canvas (Priority #3)
 
