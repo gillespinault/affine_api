@@ -105,6 +105,38 @@ paths:
         '204':
           description: Document deleted
   /workspaces/{workspaceId}/blobs:
+    get:
+      summary: List all blobs in workspace
+      operationId: listBlobs
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: List of blobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  blobs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                          description: Blob identifier
+                        mime:
+                          type: string
+                          description: MIME type
+                        size:
+                          type: integer
+                          description: Size in bytes
+                        createdAt:
+                          type: string
+                          description: Unix timestamp (milliseconds)
+                  workspaceId:
+                    type: string
     post:
       summary: Upload a file to blob storage
       operationId: uploadBlob
@@ -143,6 +175,49 @@ paths:
                     type: string
         '413':
           description: File too large (max 10MB)
+  /workspaces/{workspaceId}/blobs/{blobKey}:
+    get:
+      summary: Download a blob
+      operationId: getBlob
+      description: Download blob content. Returns binary by default, or JSON with base64 content if format=base64
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - name: blobKey
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Blob key/identifier
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [base64]
+          description: Set to 'base64' to receive JSON with base64-encoded content
+      responses:
+        '200':
+          description: Blob content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+                    description: Base64-encoded blob content
+                  mime:
+                    type: string
+                  size:
+                    type: integer
+                  key:
+                    type: string
+        '404':
+          description: Blob not found
   /workspaces/{workspaceId}/documents/{docId}/images:
     post:
       summary: Upload image and create image block

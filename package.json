@@ -27,10 +27,13 @@
     "cli:create-doc": "tsx src/service/cli/create-doc.ts",
     "start": "node dist/service/start.js",
     "start:mcp": "node dist/mcp/start.js",
+    "start:network": "node dist/mcp/start-network.js",
     "prepare": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.21.0",
+    "@types/express": "^5.0.5",
+    "express": "^5.1.0",
     "fastify": "^4.28.1",
     "mdast-util-to-string": "^4.0.0",
     "remark": "^15.0.1",

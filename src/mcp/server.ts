@@ -1321,7 +1321,7 @@ function makeTool(
   return { name, title, description, inputSchema, handler };
 }
 
-const toolDefinitions: ToolDefinition[] = [
+export const toolDefinitions: ToolDefinition[] = [
   // Health
   makeTool(
     'health_check',
@@ -2151,7 +2151,7 @@ const toolDefinitions: ToolDefinition[] = [
   ),
 ];
 
-const toolMap = new Map(toolDefinitions.map(tool => [tool.name, tool]));
+export const toolMap = new Map(toolDefinitions.map(tool => [tool.name, tool]));
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: toolDefinitions.map(tool => ({
@@ -2162,26 +2162,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   })),
 }));
 
-server.setRequestHandler(CallToolRequestSchema, async request => {
-  const tool = toolMap.get(request.params.name);
+export async function handleToolCall(name: string, args: unknown) {
+  const tool = toolMap.get(name);
   if (!tool) {
-    return errorResult(`Unknown tool: ${request.params.name}`);
+    return errorResult(`Unknown tool: ${name}`);
   }
 
-  let args: Args;
+  let parsedArgs: Args;
   try {
-    args = ensureObject(request.params.arguments);
+    parsedArgs = ensureObject(args);
   } catch (error) {
     console.error(`[${tool.name}] Invalid arguments:`, error);
     return errorResult(error);
   }
 
   try {
-    return await tool.handler(args);
+    return await tool.handler(parsedArgs);
   } catch (error) {
     console.error(`[${tool.name}] Execution failed:`, error);
     return errorResult(error);
   }
+}
+
+server.setRequestHandler(CallToolRequestSchema, async request => {
+  return handleToolCall(request.params.name, request.params.arguments);
 });
 
 export async function startMcpServer() {

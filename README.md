@@ -36,7 +36,7 @@ En plus de l'API REST, ce projet fournit un **serveur MCP** permettant aux agent
 | **Workspaces** (5) | list_workspaces, get_workspace, get_hierarchy | Navigation complète workspaces + folders + subdocs |
 | **Documents** (8) | create_document, update_document, search_documents | Import Markdown, CRUD complet, recherche |
 | **Blocks** (3) | add_block, update_block, delete_block | Ajout paragraphes, listes, code blocks |
-| **Blobs & Images** (2) | upload_blob, add_image_block | Upload images, créer blocs affine:image |
+| **Blobs & Images** (4) | list_blobs, get_blob, upload_blob, add_image_block | Lister, télécharger, upload images |
 | **Edgeless Canvas** (5) | create_edgeless_element, list_elements | Créer shapes, connectors, flowcharts |
 | **Folders** (1) | create_folder | Organiser documents |
 | **Tags** (3) | list_tags, create_tag, delete_tag | Gestion tags |
@@ -142,8 +142,10 @@ PATCH  /workspaces/:workspaceId/documents/:docId/blocks/:blockId  # Modifier un 
 DELETE /workspaces/:workspaceId/documents/:docId/blocks/:blockId  # Supprimer un bloc
 ```
 
-### Blobs & Images (2 endpoints - NOUVEAU)
+### Blobs & Images (4 endpoints)
 ```bash
+GET    /workspaces/:workspaceId/blobs                             # Lister tous les blobs (key, mime, size, createdAt)
+GET    /workspaces/:workspaceId/blobs/:blobKey                    # Télécharger blob (binaire ou ?format=base64)
 POST   /workspaces/:workspaceId/blobs                             # Upload fichier au blob storage
 POST   /workspaces/:workspaceId/documents/:docId/images           # Upload image + créer bloc affine:image
 ```
@@ -926,6 +928,55 @@ Support complet pour l'upload d'images dans les documents AFFiNE.
 Les images dans AFFiNE utilisent le **blob storage** :
 1. L'image est uploadée au blob storage → retourne un `blobId`
 2. Un bloc `affine:image` est créé avec `sourceId` pointant vers le blob
+
+#### Lister les blobs d'un workspace
+
+```bash
+curl -s "https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/blobs" | jq .
+```
+
+**Réponse** :
+```json
+{
+  "blobs": [
+    {
+      "key": "nano_banana_test.png",
+      "mime": "image/png",
+      "size": 1683271,
+      "createdAt": "1764268586989"
+    },
+    {
+      "key": "uBJ0gwSEwO5WU8W57ctCiES4y_tVRGPcJwuue4pPbnA=",
+      "mime": "image/png",
+      "size": 6601,
+      "createdAt": "1758544722066"
+    }
+  ],
+  "workspaceId": "..."
+}
+```
+
+#### Télécharger un blob
+
+**Format binaire** (défaut) - pour sauvegarder directement :
+```bash
+curl -s "https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/blobs/BLOB_KEY" -o image.png
+```
+
+**Format base64** - pour traitement API :
+```bash
+curl -s "https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/blobs/BLOB_KEY?format=base64" | jq .
+```
+
+**Réponse** (format=base64) :
+```json
+{
+  "content": "iVBORw0KGgoAAAANSUhEUgAA...",
+  "mime": "image/png",
+  "size": 6601,
+  "key": "BLOB_KEY"
+}
+```
 
 #### Upload d'image dans un document
 

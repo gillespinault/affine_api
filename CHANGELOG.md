@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Blob Retrieval API** : Récupérer les blobs d'un workspace
+  - `GET /workspaces/:workspaceId/blobs` - Lister tous les blobs (key, mime, size, createdAt)
+  - `GET /workspaces/:workspaceId/blobs/:blobKey` - Télécharger blob (binaire ou `?format=base64`)
+  - Client methods: `listBlobs(workspaceId)`, `getBlob(workspaceId, blobKey)`
+  - Permet à Claude d'analyser les images stockées dans AFFiNE
+
 - **Blob Storage API** : Upload fichiers au blob storage AFFiNE
   - `POST /workspaces/:workspaceId/blobs` - Upload blob brut
   - Client method: `uploadBlob(workspaceId, { fileName, content, mimeType })`
@@ -24,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Les images AFFiNE nécessitent 2 étapes : upload blob → création bloc avec sourceId
 - `addImageBlock()` combine les deux opérations en une seule
+- `getBlob()` utilise `arrayBuffer()` pour préserver les données binaires (fix encodage)
 - Limite de taille : 10 MB par fichier (base64)
 - Format ImageBlockProps BlockSuite : `{ sourceId, caption, width, height, rotate, size }`
 

@@ -1667,9 +1667,31 @@ export class AffineClient {
       // Set properties
       Object.entries(props).forEach(([key, value]) => {
         const propKey = key.startsWith('prop:') ? key : `prop:${key}`;
-        if (typeof value === 'string' && (key === 'text' || key === 'title')) {
+        if (key === 'text' || key === 'title') {
           const ytext = new Y.Text();
-          ytext.insert(0, value);
+          if (typeof value === 'string') {
+            // Simple string
+            ytext.insert(0, value);
+          } else if (
+            value &&
+            typeof value === 'object' &&
+            '$blocksuite:internal:text$' in value &&
+            'delta' in value &&
+            Array.isArray((value as { delta: unknown[] }).delta)
+          ) {
+            // BlockSuite delta format with potential attributes (e.g., LinkedPage)
+            const delta = (value as { delta: Array<{ insert: string; attributes?: Record<string, unknown> }> }).delta;
+            let offset = 0;
+            for (const op of delta) {
+              if (op.insert) {
+                ytext.insert(offset, op.insert, op.attributes);
+                offset += op.insert.length;
+              }
+            }
+          } else if (value && typeof value === 'object') {
+            // Unknown object format, try to stringify
+            ytext.insert(0, JSON.stringify(value));
+          }
           blockMap.set(propKey, ytext);
         } else {
           blockMap.set(propKey, value);
