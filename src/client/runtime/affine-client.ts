@@ -661,6 +661,37 @@ export class AffineClient {
     return decodeLoadResponse(res);
   }
 
+  /**
+   * Load a workspace doc, or create an empty one if it doesn't exist.
+   * Useful for system docs like docCustomPropertyInfo that may not exist yet.
+   */
+  async loadOrCreateWorkspaceDoc(workspaceId: string, docId: string) {
+    const res = await this.emitWithAck<SocketAck<LoadDocAckPayload>>(
+      'space:load-doc',
+      {
+        spaceType: 'workspace',
+        spaceId: workspaceId,
+        docId,
+      },
+    );
+
+    // Check if doc doesn't exist (404)
+    if (res && typeof res === 'object' && 'error' in res && res.error) {
+      const error = res.error as { code?: string };
+      if (error.code === 'DOC_NOT_FOUND') {
+        // Create a new empty Y.Doc
+        const doc = new Y.Doc();
+        return { doc, stateVector: null, isNew: true };
+      }
+      throw new Error(
+        `space:load-doc failed for ${docId}: ${JSON.stringify(res.error)}`,
+      );
+    }
+
+    const result = decodeLoadResponse(res);
+    return { ...result, isNew: false };
+  }
+
   async pushWorkspaceDocUpdate(
     workspaceId: string,
     docId: string,
@@ -840,7 +871,7 @@ export class AffineClient {
     },
   ) {
     const docCustomPropsId = `db$${workspaceId}$docCustomPropertyInfo`;
-    const { doc, stateVector } = await this.loadWorkspaceDoc(
+    const { doc, stateVector } = await this.loadOrCreateWorkspaceDoc(
       workspaceId,
       docCustomPropsId,
     );
@@ -883,7 +914,12 @@ export class AffineClient {
     isDeleted?: boolean;
   }>> {
     const docCustomPropsId = `db$${workspaceId}$docCustomPropertyInfo`;
-    const { doc } = await this.loadWorkspaceDoc(workspaceId, docCustomPropsId);
+    const { doc, isNew } = await this.loadOrCreateWorkspaceDoc(workspaceId, docCustomPropsId);
+
+    // If the doc was just created, it's empty - return empty array
+    if (isNew) {
+      return [];
+    }
 
     const properties: Array<{
       id: string;
