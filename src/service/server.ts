@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { AffineClient, type CopilotDocChunk, type CopilotFileChunk } from '../client/index.js';
 import type { AffineClientOptions } from '../client/index.js';
+import { registerKarakeepWebhook, type KarakeepWebhookConfig } from './webhooks/index.js';
 
 type DocumentPayload = {
   title?: string;
@@ -35,6 +36,7 @@ export interface ServerConfig {
   credentialProvider?: CredentialProvider;
   clientOptions?: Pick<AffineClientOptions, 'fetchFn' | 'ioFactory' | 'timeoutMs'>;
   logger?: boolean;
+  karakeepWebhook?: KarakeepWebhookConfig;
 }
 
 function createClient(config: ServerConfig) {
@@ -378,6 +380,75 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
   // ============================================================================
   // Blob & Image Endpoints
   // ============================================================================
+
+  /**
+   * List all blobs in a workspace.
+   * GET /workspaces/:workspaceId/blobs
+   * Returns: { blobs: Array<{ key, mime, size, createdAt }> }
+   */
+  app.get('/workspaces/:workspaceId/blobs', async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+    const client = createClient(config);
+
+    try {
+      await client.signIn(email, password);
+      const blobs = await client.listBlobs(workspaceId);
+      reply.send({ blobs, workspaceId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  /**
+   * Download a blob from workspace storage.
+   * GET /workspaces/:workspaceId/blobs/:blobKey
+   * Query params: format=base64 (optional, default returns binary)
+   * Returns: binary data or { content: base64, mime, size }
+   */
+  app.get('/workspaces/:workspaceId/blobs/:blobKey', async (request, reply) => {
+    const { workspaceId, blobKey } = request.params as {
+      workspaceId: string;
+      blobKey: string;
+    };
+    const query = (request.query ?? {}) as { format?: string };
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+    const client = createClient(config);
+
+    try {
+      await client.signIn(email, password);
+      const blob = await client.getBlob(workspaceId, blobKey);
+
+      if (query.format === 'base64') {
+        // Return as JSON with base64 content
+        reply.send({
+          content: blob.content.toString('base64'),
+          mime: blob.mime,
+          size: blob.size,
+          key: blobKey,
+        });
+      } else {
+        // Return binary with proper content type
+        reply
+          .header('content-type', blob.mime)
+          .header('content-length', blob.size)
+          .header('cache-control', 'public, max-age=2592000, immutable')
+          .send(blob.content);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('404') || message.includes('not found')) {
+        reply.code(404).send({ error: 'Blob not found' });
+      } else {
+        reply.code(500).send({ error: message });
+      }
+    } finally {
+      await client.disconnect();
+    }
+  });
 
   /**
    * Upload a blob to workspace storage.
@@ -1107,6 +1178,7 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
       };
       const body = (request.body ?? {}) as {
         tags?: string[];
+        customProperties?: Record<string, string | number | boolean | null>;
       };
       const { email, password } = await credentialProvider.getCredentials(workspaceId);
 
@@ -1127,6 +1199,7 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
             docId,
             timestamp,
             tags: body.tags,
+            customProperties: body.customProperties,
           }),
           client.updateWorkspaceMeta(workspaceId, {
             docId,
@@ -1211,6 +1284,94 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
         deleted: true,
         documentsUpdated: result.documentsUpdated,
       });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  // ============================================================================
+  // Custom Properties (Document Info Panel)
+  // ============================================================================
+
+  /**
+   * GET /workspaces/:workspaceId/custom-properties
+   * List all custom property definitions for the workspace.
+   * Returns: { properties: Array<{ id, type, name, icon?, show, index }> }
+   */
+  app.get('/workspaces/:workspaceId/custom-properties', async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+    const client = createClient(config);
+    try {
+      await client.signIn(email, password);
+      await client.connectSocket();
+      await client.joinWorkspace(workspaceId);
+
+      const properties = await client.listDocCustomPropertyInfo(workspaceId);
+      reply.send({ workspaceId, properties });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  /**
+   * POST /workspaces/:workspaceId/custom-properties
+   * Create or update a custom property definition for the workspace.
+   * Body: { id: string, type: 'text'|'number'|'date'|'checkbox', name: string, icon?: string, show?: 'always-show'|'always-hide'|'hide-when-empty' }
+   * Returns: { id, type, name, show }
+   */
+  app.post('/workspaces/:workspaceId/custom-properties', async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+    const body = (request.body ?? {}) as {
+      id?: string;
+      type?: string;
+      name?: string;
+      icon?: string;
+      show?: string;
+    };
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+    // Validate required fields
+    if (!body.id || !body.id.trim()) {
+      reply.code(400).send({ error: 'id is required' });
+      return;
+    }
+    if (!body.type || !['text', 'number', 'date', 'checkbox'].includes(body.type)) {
+      reply.code(400).send({ error: 'type must be one of: text, number, date, checkbox' });
+      return;
+    }
+    if (!body.name || !body.name.trim()) {
+      reply.code(400).send({ error: 'name is required' });
+      return;
+    }
+    const showValue = body.show ?? 'always-show';
+    if (!['always-show', 'always-hide', 'hide-when-empty'].includes(showValue)) {
+      reply.code(400).send({ error: 'show must be one of: always-show, always-hide, hide-when-empty' });
+      return;
+    }
+
+    const client = createClient(config);
+    try {
+      await client.signIn(email, password);
+      await client.connectSocket();
+      await client.joinWorkspace(workspaceId);
+
+      const result = await client.upsertDocCustomPropertyInfo(workspaceId, {
+        id: body.id.trim(),
+        type: body.type as 'text' | 'number' | 'date' | 'checkbox',
+        name: body.name.trim(),
+        icon: body.icon,
+        show: showValue as 'always-show' | 'always-hide' | 'hide-when-empty',
+      });
+
+      reply.code(201).send(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500).send({ error: message });
     } finally {
       await client.disconnect();
     }
@@ -1822,6 +1983,15 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
       }
     },
   );
+
+  // ============================================================================
+  // Karakeep Webhook Integration
+  // ============================================================================
+
+  if (config.karakeepWebhook) {
+    registerKarakeepWebhook(app, config.karakeepWebhook);
+    app.log.info('Karakeep webhook registered at /webhooks/karakeep');
+  }
 
   return app;
 }

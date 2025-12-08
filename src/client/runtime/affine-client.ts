@@ -38,6 +38,7 @@ interface FetchResponseLike {
   statusText: string;
   headers: HeadersLike;
   text(): Promise<string>;
+  arrayBuffer(): Promise<ArrayBuffer>;
 }
 
 export type FetchLike = (
@@ -207,6 +208,13 @@ export interface DocumentPublicationInfo {
   workspaceId: string;
   public: boolean;
   mode: 'page' | 'edgeless' | null;
+}
+
+export interface BlobInfo {
+  key: string;
+  mime: string;
+  size: number;
+  createdAt: string;
 }
 
 export function parseSetCookies(headers: Array<string | undefined> = []) {
@@ -748,7 +756,14 @@ export class AffineClient {
       timestamp,
       tags,
       primaryMode,
-    }: { docId: string; timestamp: number; tags?: string[]; primaryMode?: 'page' | 'edgeless' },
+      customProperties,
+    }: {
+      docId: string;
+      timestamp: number;
+      tags?: string[];
+      primaryMode?: 'page' | 'edgeless';
+      customProperties?: Record<string, string | number | boolean | null>;
+    },
   ) {
     const docPropsId = `db$${workspaceId}$docProperties`;
     const { doc, stateVector } = await this.loadWorkspaceDoc(
@@ -782,12 +797,123 @@ export class AffineClient {
       }
     }
 
+    // Set custom properties (custom:{propertyId} = value)
+    if (customProperties) {
+      for (const [propertyId, value] of Object.entries(customProperties)) {
+        const key = propertyId.startsWith('custom:') ? propertyId : `custom:${propertyId}`;
+        if (value === null) {
+          propsEntry.delete(key);
+        } else {
+          propsEntry.set(key, String(value));
+        }
+      }
+    }
+
     await this.pushWorkspaceDocUpdate(
       workspaceId,
       docPropsId,
       doc,
       stateVector,
     );
+  }
+
+  /**
+   * Create or update a custom property definition for the workspace.
+   * This defines the property type, name, and display settings that appear in the Info panel.
+   */
+  async upsertDocCustomPropertyInfo(
+    workspaceId: string,
+    {
+      id,
+      type,
+      name,
+      icon,
+      show = 'always-show',
+      index,
+    }: {
+      id: string;
+      type: 'text' | 'number' | 'date' | 'checkbox';
+      name: string;
+      icon?: string;
+      show?: 'always-show' | 'always-hide' | 'hide-when-empty';
+      index?: string;
+    },
+  ) {
+    const docCustomPropsId = `db$${workspaceId}$docCustomPropertyInfo`;
+    const { doc, stateVector } = await this.loadWorkspaceDoc(
+      workspaceId,
+      docCustomPropsId,
+    );
+
+    const propsEntry = doc.getMap<unknown>(id);
+    propsEntry.set('id', id);
+    propsEntry.set('type', type);
+    propsEntry.set('name', name);
+    propsEntry.set('show', show);
+    if (icon) {
+      propsEntry.set('icon', icon);
+    }
+    if (index) {
+      propsEntry.set('index', index);
+    } else {
+      // Generate a sortable index if not provided
+      propsEntry.set('index', `a${Date.now()}`);
+    }
+
+    await this.pushWorkspaceDocUpdate(
+      workspaceId,
+      docCustomPropsId,
+      doc,
+      stateVector,
+    );
+
+    return { id, type, name, show };
+  }
+
+  /**
+   * List all custom property definitions for the workspace.
+   */
+  async listDocCustomPropertyInfo(workspaceId: string): Promise<Array<{
+    id: string;
+    type: string;
+    name?: string;
+    icon?: string;
+    show?: string;
+    index?: string;
+    isDeleted?: boolean;
+  }>> {
+    const docCustomPropsId = `db$${workspaceId}$docCustomPropertyInfo`;
+    const { doc } = await this.loadWorkspaceDoc(workspaceId, docCustomPropsId);
+
+    const properties: Array<{
+      id: string;
+      type: string;
+      name?: string;
+      icon?: string;
+      show?: string;
+      index?: string;
+      isDeleted?: boolean;
+    }> = [];
+
+    for (const key of doc.share.keys()) {
+      if (key === 'meta') continue;
+      const entry = doc.getMap<unknown>(key);
+      const id = entry.get('id');
+      const type = entry.get('type');
+      if (typeof id === 'string' && typeof type === 'string') {
+        properties.push({
+          id,
+          type,
+          name: typeof entry.get('name') === 'string' ? entry.get('name') as string : undefined,
+          icon: typeof entry.get('icon') === 'string' ? entry.get('icon') as string : undefined,
+          show: typeof entry.get('show') === 'string' ? entry.get('show') as string : undefined,
+          index: typeof entry.get('index') === 'string' ? entry.get('index') as string : undefined,
+          isDeleted: entry.get('isDeleted') === true,
+        });
+      }
+    }
+
+    return properties.filter(p => !p.isDeleted);
   }
 
   async upsertFolderNode(
@@ -1539,6 +1665,350 @@ export class AffineClient {
     await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
 
     return { blockId, timestamp: now };
+  }
+
+  /**
+   * Add a paragraph block that contains a LinkedPage reference to another document.
+   * This creates bidirectional links that appear as backlinks in AFFiNE.
+   *
+   * @param workspaceId - The workspace ID
+   * @param docId - The document to add the block to
+   * @param options - Block options including linked document info
+   * @returns The created block ID and timestamp
+   */
+  async addParagraphWithDocLink(
+    workspaceId: string,
+    docId: string,
+    {
+      parentBlockId,
+      linkedDocId,
+      linkText,
+      prefixText = '',
+      suffixText = '',
+      position,
+      type = 'text',
+    }: {
+      parentBlockId: string;
+      linkedDocId: string;
+      linkText: string;
+      prefixText?: string;
+      suffixText?: string;
+      position?: 'start' | 'end' | number;
+      type?: 'text' | 'h1' | 'h2' | 'h3';
+    },
+  ) {
+    if (!this.userId) {
+      throw new Error('User id unavailable: signIn must complete before addParagraphWithDocLink.');
+    }
+
+    await this.joinWorkspace(workspaceId);
+
+    const { doc, stateVector } = await this.loadWorkspaceDoc(workspaceId, docId);
+    const blocks = doc.getMap<Y.Map<unknown>>('blocks');
+    const parentBlock = blocks.get(parentBlockId);
+
+    if (!(parentBlock instanceof Y.Map)) {
+      throw new Error(`Parent block ${parentBlockId} not found`);
+    }
+
+    const blockId = nanoid();
+    const now = Date.now();
+
+    doc.transact(() => {
+      // Create new paragraph block
+      const blockMap = new Y.Map<unknown>();
+      blockMap.set('sys:id', blockId);
+      blockMap.set('sys:flavour', 'affine:paragraph');
+      blockMap.set('sys:parent', parentBlockId);
+      blockMap.set('sys:children', new Y.Array());
+      blockMap.set('prop:type', type);
+      blockMap.set('prop:collapsed', false);
+
+      // Create Y.Text with LinkedPage reference
+      const ytext = new Y.Text();
+      let currentPos = 0;
+
+      // Insert prefix text (if any)
+      if (prefixText) {
+        ytext.insert(currentPos, prefixText);
+        currentPos += prefixText.length;
+      }
+
+      // Insert linked document reference with special attributes
+      // Using '\u0000' (null char) or the link text as the actual character
+      // AFFiNE uses the reference attribute to render the link
+      ytext.insert(currentPos, linkText, {
+        reference: {
+          type: 'LinkedPage',
+          pageId: linkedDocId,
+        },
+      });
+      currentPos += linkText.length;
+
+      // Insert suffix text (if any)
+      if (suffixText) {
+        ytext.insert(currentPos, suffixText);
+      }
+
+      blockMap.set('prop:text', ytext);
+
+      // Add metadata
+      blockMap.set('prop:meta:createdAt', now);
+      blockMap.set('prop:meta:createdBy', this.userId);
+      blockMap.set('prop:meta:updatedAt', now);
+      blockMap.set('prop:meta:updatedBy', this.userId);
+
+      blocks.set(blockId, blockMap);
+
+      // Update parent's children
+      const parentChildren = parentBlock.get('sys:children');
+      if (parentChildren instanceof Y.Array) {
+        if (position === 'start') {
+          parentChildren.unshift([blockId]);
+        } else if (typeof position === 'number') {
+          parentChildren.insert(position, [blockId]);
+        } else {
+          parentChildren.push([blockId]);
+        }
+      }
+    });
+
+    await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
+
+    return { blockId, timestamp: now };
+  }
+
+  /**
+   * Add multiple LinkedPage references as a list in a document.
+   * Useful for creating "Related documents" or "Insights" sections.
+   */
+  async addDocLinksList(
+    workspaceId: string,
+    docId: string,
+    {
+      parentBlockId,
+      linkedDocs,
+      ordered = false,
+      position,
+    }: {
+      parentBlockId: string;
+      linkedDocs: Array<{ docId: string; title: string }>;
+      ordered?: boolean;
+      position?: 'start' | 'end' | number;
+    },
+  ) {
+    if (!this.userId) {
+      throw new Error('User id unavailable: signIn must complete before addDocLinksList.');
+    }
+
+    await this.joinWorkspace(workspaceId);
+
+    const { doc, stateVector } = await this.loadWorkspaceDoc(workspaceId, docId);
+    const blocks = doc.getMap<Y.Map<unknown>>('blocks');
+    const parentBlock = blocks.get(parentBlockId);
+
+    if (!(parentBlock instanceof Y.Map)) {
+      throw new Error(`Parent block ${parentBlockId} not found`);
+    }
+
+    const blockIds: string[] = [];
+    const now = Date.now();
+
+    doc.transact(() => {
+      linkedDocs.forEach((linkedDoc, index) => {
+        const blockId = nanoid();
+        blockIds.push(blockId);
+
+        // Create list item block
+        const blockMap = new Y.Map<unknown>();
+        blockMap.set('sys:id', blockId);
+        blockMap.set('sys:flavour', 'affine:list');
+        blockMap.set('sys:parent', parentBlockId);
+        blockMap.set('sys:children', new Y.Array());
+        blockMap.set('prop:type', ordered ? 'numbered' : 'bulleted');
+        blockMap.set('prop:checked', false);
+        blockMap.set('prop:collapsed', false);
+        if (ordered) {
+          blockMap.set('prop:order', index + 1);
+        }
+
+        // Create Y.Text with LinkedPage reference
+        const ytext = new Y.Text();
+        ytext.insert(0, linkedDoc.title, {
+          reference: {
+            type: 'LinkedPage',
+            pageId: linkedDoc.docId,
+          },
+        });
+
+        blockMap.set('prop:text', ytext);
+
+        // Add metadata
+        blockMap.set('prop:meta:createdAt', now);
+        blockMap.set('prop:meta:createdBy', this.userId);
+        blockMap.set('prop:meta:updatedAt', now);
+        blockMap.set('prop:meta:updatedBy', this.userId);
+
+        blocks.set(blockId, blockMap);
+
+        // Update parent's children
+        const parentChildren = parentBlock.get('sys:children');
+        if (parentChildren instanceof Y.Array) {
+          if (position === 'start' && index === 0) {
+            parentChildren.unshift([blockId]);
+          } else if (typeof position === 'number' && index === 0) {
+            parentChildren.insert(position, [blockId]);
+          } else {
+            parentChildren.push([blockId]);
+          }
+        }
+      });
+    });
+
+    await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
+
+    return { blockIds, timestamp: now };
+  }
+
+  /**
+   * Add embedded synced document blocks (affine:embed-synced-doc).
+   * These show the actual content of referenced documents inline,
+   * synchronized in real-time. Much richer than simple LinkedPage links.
+   *
+   * @param workspaceId - The workspace ID
+   * @param docId - The document to add the embedded blocks to
+   * @param options - Options including the documents to embed
+   * @returns The created block IDs and timestamp
+   */
+  async addEmbeddedSyncedDocsList(
+    workspaceId: string,
+    docId: string,
+    {
+      parentBlockId,
+      embeddedDocs,
+      position,
+    }: {
+      parentBlockId: string;
+      embeddedDocs: Array<{ docId: string; title?: string }>;
+      position?: 'start' | 'end' | number;
+    },
+  ) {
+    if (!this.userId) {
+      throw new Error('User id unavailable: signIn must complete before addEmbeddedSyncedDocsList.');
+    }
+
+    await this.joinWorkspace(workspaceId);
+
+    const { doc, stateVector } = await this.loadWorkspaceDoc(workspaceId, docId);
+    const blocks = doc.getMap<Y.Map<unknown>>('blocks');
+    const parentBlock = blocks.get(parentBlockId);
+
+    if (!(parentBlock instanceof Y.Map)) {
+      throw new Error(`Parent block ${parentBlockId} not found`);
+    }
+
+    const blockIds: string[] = [];
+    const now = Date.now();
+
+    doc.transact(() => {
+      embeddedDocs.forEach((embeddedDoc, index) => {
+        const blockId = nanoid();
+        blockIds.push(blockId);
+
+        // Create embedded synced doc block
+        const blockMap = new Y.Map<unknown>();
+        blockMap.set('sys:id', blockId);
+        blockMap.set('sys:flavour', 'affine:embed-synced-doc');
+        blockMap.set('sys:parent', parentBlockId);
+        blockMap.set('sys:children', new Y.Array());
+
+        // Set the pageId to reference the embedded document
+        blockMap.set('prop:pageId', embeddedDoc.docId);
+
+        // Optional: Set caption if title is provided
+        if (embeddedDoc.title) {
+          const caption = new Y.Text();
+          caption.insert(0, embeddedDoc.title);
+          blockMap.set('prop:caption', caption);
+        }
+
+        // Add metadata
+        blockMap.set('prop:meta:createdAt', now);
+        blockMap.set('prop:meta:createdBy', this.userId);
+        blockMap.set('prop:meta:updatedAt', now);
+        blockMap.set('prop:meta:updatedBy', this.userId);
+
+        blocks.set(blockId, blockMap);
+
+        // Update parent's children
+        const parentChildren = parentBlock.get('sys:children');
+        if (parentChildren instanceof Y.Array) {
+          if (position === 'start' && index === 0) {
+            parentChildren.unshift([blockId]);
+          } else if (typeof position === 'number' && index === 0) {
+            parentChildren.insert(position, [blockId]);
+          } else {
+            parentChildren.push([blockId]);
+          }
+        }
+      });
+    });
+
+    await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
+
+    return { blockIds, timestamp: now };
+  }
+
+  /**
+   * Get the noteId (main content block) of a document.
+   * This is needed to add blocks to the document's content area.
+   */
+  async getDocumentNoteId(workspaceId: string, docId: string): Promise<string> {
+    const { doc } = await this.loadWorkspaceDoc(workspaceId, docId);
+    const blocks = doc.getMap<Y.Map<unknown>>('blocks');
+
+    for (const [blockId, blockMap] of blocks.entries()) {
+      if (blockMap instanceof Y.Map && blockMap.get('sys:flavour') === 'affine:note') {
+        return blockId;
+      }
+    }
+
+    throw new Error(`No note block found in document ${docId}`);
+  }
+
+  /**
+   * Create a document with full content structure including LinkedPage references.
+   * Returns both the docId and noteId for further block additions.
+   */
+  async createDocumentWithStructure(
+    workspaceId: string,
+    {
+      title,
+      markdown,
+      folderId = null,
+      tags,
+    }: {
+      title: string;
+      markdown?: string;
+      folderId?: string | null;
+      tags?: string[];
+    },
+  ): Promise<{ docId: string; noteId: string; folderNodeId: string | null; timestamp: number }> {
+    const result = await this.createDocument(workspaceId, {
+      title,
+      markdown,
+      folderId,
+      tags,
+    });
+
+    const noteId = await this.getDocumentNoteId(workspaceId, result.docId);
+
+    return {
+      docId: result.docId,
+      noteId,
+      folderNodeId: result.folderNodeId,
+      timestamp: result.timestamp,
+    };
   }
 
   async updateBlock(
@@ -3474,6 +3944,86 @@ export class AffineClient {
   // ============================================================================
   // Blob & Image Operations
   // ============================================================================
+
+  /**
+   * List all blobs in a workspace with metadata.
+   */
+  async listBlobs(
+    workspaceId: string,
+  ): Promise<BlobInfo[]> {
+    const query = `
+      query workspace($id: String!) {
+        workspace(id: $id) {
+          blobs {
+            key
+            mime
+            size
+            createdAt
+          }
+        }
+      }
+    `;
+
+    const result = await this.graphqlQuery<{
+      workspace: {
+        blobs: Array<{
+          key: string;
+          mime: string;
+          size: number;
+          createdAt: string;
+        }>;
+      };
+    }>(query, { id: workspaceId });
+
+    return result.workspace.blobs.map(b => ({
+      key: b.key,
+      mime: b.mime,
+      size: b.size,
+      createdAt: b.createdAt,
+    }));
+  }
+
+  /**
+   * Download blob content from workspace.
+   * Returns the blob as a Buffer along with metadata.
+   */
+  async getBlob(
+    workspaceId: string,
+    blobKey: string,
+  ): Promise<{ content: Buffer; mime: string; size: number }> {
+    if (!this.cookieJar.size) {
+      throw new Error('Must sign in before downloading blobs');
+    }
+
+    const url = new URL(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/blobs/${encodeURIComponent(blobKey)}`,
+      this.baseUrl,
+    ).toString();
+
+    const response = await this.fetchFn(url, {
+      method: 'GET',
+      headers: {
+        cookie: this.getCookieHeader(),
+      },
+      redirect: 'follow',
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Blob download failed (${response.status} ${response.statusText})`,
+      );
+    }
+
+    const mime = response.headers.get('content-type') || 'application/octet-stream';
+    const arrayBuffer = await response.arrayBuffer();
+    const content = Buffer.from(arrayBuffer);
+
+    return {
+      content,
+      mime,
+      size: content.length,
+    };
+  }
 
   /**
    * Upload a file to workspace blob storage.
