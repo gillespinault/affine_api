@@ -131,8 +131,21 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
   });
   const credentialProvider = config.credentialProvider ?? new EnvCredentialProvider();
 
-  // Register WebSocket plugin
-  app.register(fastifyWebsocket);
+  // Register WebSocket plugin and wait for it to be ready before registering WS routes
+  // Using app.after() ensures the plugin is fully initialized
+  app.register(fastifyWebsocket).after((err) => {
+    if (err) {
+      app.log.error({ err }, 'Failed to register @fastify/websocket');
+      return;
+    }
+
+    // Register WebSocket route AFTER plugin is ready
+    registerWebSocketRoute(app, {
+      credentialProvider,
+      baseUrl: config.baseUrl,
+    });
+    app.log.info('WebSocket route registered at GET /canvas (after plugin ready)');
+  });
 
   app.get('/healthz', async (_request, reply) => {
     reply.send({ status: 'ok' });
@@ -2086,15 +2099,8 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     app.log.info('Karakeep webhook registered at /webhooks/karakeep');
   }
 
-  // ============================================================================
-  // WebSocket Route for Real-time Canvas Collaboration
-  // ============================================================================
-
-  registerWebSocketRoute(app, {
-    credentialProvider,
-    baseUrl: config.baseUrl,
-  });
-  app.log.info('WebSocket route registered at GET /canvas');
+  // WebSocket route is registered in the .after() callback of fastifyWebsocket plugin
+  // This ensures the plugin is fully initialized before route registration
 
   return app;
 }
