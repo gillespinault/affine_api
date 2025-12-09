@@ -511,41 +511,52 @@ export interface WebSocketConfig {
  * Register WebSocket route for real-time canvas collaboration
  */
 export function registerWebSocketRoute(fastify: FastifyInstance, config: WebSocketConfig): void {
-  fastify.get('/canvas', { websocket: true }, (socket, req) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  fastify.get('/canvas', { websocket: true }, (socket: any, req) => {
     const clientId = `${req.ip}:${Math.random().toString(36).substring(7)}`;
     console.log(`[WS] New connection: ${clientId}`);
 
+    // Debug: what is socket?
+    console.log(`[WS] DEBUG socket type: ${typeof socket}`);
+    console.log(`[WS] DEBUG socket constructor: ${socket?.constructor?.name}`);
+    console.log(`[WS] DEBUG socket.on type: ${typeof socket?.on}`);
+    console.log(`[WS] DEBUG socket keys: ${Object.keys(socket || {}).slice(0, 10).join(', ')}`);
+
+    // If socket is a SocketStream (from older API), use socket.socket
+    const ws = socket.socket || socket;
+    console.log(`[WS] DEBUG ws.on type: ${typeof ws?.on}`);
+
     // Handle incoming messages
-    socket.on('message', async (data: Buffer) => {
+    ws.on('message', async (data: Buffer) => {
       try {
         const message: ClientMessage = JSON.parse(data.toString());
         console.log(`[WS] Received message: type=${message.type}`);
 
         switch (message.type) {
           case 'join':
-            await handleJoin(socket, message, config.credentialProvider, config.baseUrl);
+            await handleJoin(ws, message, config.credentialProvider, config.baseUrl);
             break;
           case 'brush':
-            await handleBrush(socket, message);
+            await handleBrush(ws, message);
             break;
           case 'shape':
-            await handleShape(socket, message);
+            await handleShape(ws, message);
             break;
           case 'text':
-            await handleText(socket, message);
+            await handleText(ws, message);
             break;
           case 'delete':
-            await handleDelete(socket, message);
+            await handleDelete(ws, message);
             break;
           case 'update':
-            await handleUpdate(socket, message);
+            await handleUpdate(ws, message);
             break;
           case 'ping':
-            handlePing(socket);
+            handlePing(ws);
             break;
           default:
             console.warn('[WS] Unknown message type:', (message as { type: string }).type);
-            sendToClient(socket, {
+            sendToClient(ws, {
               type: 'error',
               message: 'Unknown message type',
               code: 'UNKNOWN_TYPE',
@@ -553,7 +564,7 @@ export function registerWebSocketRoute(fastify: FastifyInstance, config: WebSock
         }
       } catch (error) {
         console.error('[WS] Error handling message:', error);
-        sendToClient(socket, {
+        sendToClient(ws, {
           type: 'error',
           message: error instanceof Error ? error.message : String(error),
           code: 'HANDLER_ERROR',
@@ -562,15 +573,15 @@ export function registerWebSocketRoute(fastify: FastifyInstance, config: WebSock
     });
 
     // Handle client disconnect
-    socket.on('close', () => {
+    ws.on('close', () => {
       console.log(`[WS] Connection closed: ${clientId}`);
-      removeClientFromSession(socket);
+      removeClientFromSession(ws);
     });
 
     // Handle errors
-    socket.on('error', (error: Error) => {
+    ws.on('error', (error: Error) => {
       console.error(`[WS] Socket error (${clientId}):`, error);
-      removeClientFromSession(socket);
+      removeClientFromSession(ws);
     });
   });
 
