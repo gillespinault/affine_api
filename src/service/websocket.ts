@@ -529,8 +529,10 @@ export function registerWebSocketRoute(fastify: FastifyInstance, config: WebSock
     // Handle incoming messages
     ws.on('message', async (data: Buffer) => {
       try {
-        const message: ClientMessage = JSON.parse(data.toString());
-        console.log(`[WS] Received message: type=${message.type}`);
+        const rawText = data.toString();
+        console.log(`[WS] Raw message received: ${rawText.slice(0, 500)}`);
+        const message: ClientMessage = JSON.parse(rawText);
+        console.log(`[WS] Parsed message: type=${message.type}`);
 
         switch (message.type) {
           case 'join':
