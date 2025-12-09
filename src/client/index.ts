@@ -25,6 +25,7 @@ export {
   type NotificationList,
   type AccessTokenInfo,
   type DocumentPublicationInfo,
+  type DocumentChange,
 } from './runtime/affine-client.js';
 export { createDocYStructure, nanoid } from './runtime/doc-structure.js';
 export { createDocYStructureFromMarkdown } from './markdown/markdown-to-yjs.js';

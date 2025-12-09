@@ -14,7 +14,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
-import { AffineClient } from '../client/index.js';
+import { AffineClient, type DocumentChange } from '../client/index.js';
 import type { CredentialProvider } from './server.js';
 
 // ============================================================================
@@ -182,6 +182,8 @@ function removeClientFromSession(socket: WebSocket): void {
 
   // Cleanup AffineClient
   try {
+    // Stop observing document changes
+    session.client.stopObserving(session.workspaceId, session.docId);
     session.client.disconnect();
   } catch (error) {
     console.error('[WS] Error disconnecting AffineClient:', error);
@@ -277,6 +279,52 @@ async function handleJoin(
     });
 
     console.log(`[WS] JOIN successful: ${elements.length} elements loaded`);
+
+    // Start observing document for real-time changes from AFFiNE web
+    await client.observeDocument(workspaceId, docId, (change: DocumentChange) => {
+      console.log(`[WS] Document change received: type=${change.type}`);
+
+      // Relay the change to the Android client
+      switch (change.type) {
+        case 'add':
+          sendToClient(socket, {
+            type: 'add',
+            element: change.element,
+          });
+          // Also broadcast to other Android clients in the same session
+          broadcastToDocument(workspaceId, docId, {
+            type: 'add',
+            element: change.element,
+          }, socket);
+          break;
+
+        case 'remove':
+          sendToClient(socket, {
+            type: 'remove',
+            elementId: change.elementId,
+          });
+          broadcastToDocument(workspaceId, docId, {
+            type: 'remove',
+            elementId: change.elementId,
+          }, socket);
+          break;
+
+        case 'update':
+          sendToClient(socket, {
+            type: 'update',
+            elementId: change.elementId,
+            changes: change.element,
+          });
+          broadcastToDocument(workspaceId, docId, {
+            type: 'update',
+            elementId: change.elementId,
+            changes: change.element,
+          }, socket);
+          break;
+      }
+    });
+
+    console.log(`[WS] Now observing document ${workspaceId}:${docId} for real-time sync`);
   } catch (error) {
     console.error('[WS] JOIN failed:', error);
     sendToClient(socket, {

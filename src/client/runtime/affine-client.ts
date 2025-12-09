@@ -2226,7 +2226,16 @@ export class AffineClient {
     const elements: Array<Record<string, unknown>> = [];
     this.forEachElement(elementsMap, (elementData: unknown) => {
       if (typeof elementData === 'object' && elementData !== null) {
-        const element = { ...(elementData as Record<string, unknown>) };
+        // Convert Y.js objects to plain JavaScript objects
+        // Y.Map and other Y.js types have a toJSON() method
+        let element: Record<string, unknown>;
+        if (elementData instanceof Y.Map || elementData instanceof Y.Array) {
+          element = elementData.toJSON() as Record<string, unknown>;
+        } else if ('toJSON' in elementData && typeof (elementData as { toJSON: () => unknown }).toJSON === 'function') {
+          element = (elementData as { toJSON: () => unknown }).toJSON() as Record<string, unknown>;
+        } else {
+          element = { ...(elementData as Record<string, unknown>) };
+        }
 
         // Parse xywh if it's a string
         if ('xywh' in element && typeof element.xywh === 'string') {
@@ -4176,4 +4185,242 @@ export class AffineClient {
       blobId,
     };
   }
+
+  // ============================================================================
+  // Real-time Document Observation (for Android sync)
+  // ============================================================================
+
+  /**
+   * Callback type for document changes.
+   */
+  public onDocumentChange?: (change: DocumentChange) => void;
+
+  /**
+   * Cache of loaded documents for change detection.
+   */
+  private docCache = new Map<string, {
+    doc: Y.Doc;
+    lastElements: Map<string, Record<string, unknown>>;
+  }>();
+
+  /**
+   * Set of documents being observed.
+   */
+  private observedDocs = new Set<string>();
+
+  /**
+   * Start observing a document for real-time changes from AFFiNE.
+   * Call this after joining a workspace and loading the document.
+   *
+   * @param workspaceId Workspace ID
+   * @param docId Document ID
+   * @param callback Callback for document changes
+   */
+  async observeDocument(
+    workspaceId: string,
+    docId: string,
+    callback: (change: DocumentChange) => void,
+  ): Promise<void> {
+    const cacheKey = `${workspaceId}:${docId}`;
+
+    if (this.observedDocs.has(cacheKey)) {
+      console.log(`[AffineClient] Already observing ${cacheKey}`);
+      return;
+    }
+
+    // Ensure socket is connected
+    const socket = await this.connectSocket();
+    await this.joinWorkspace(workspaceId);
+
+    // Load initial document state
+    const { doc } = await this.loadWorkspaceDoc(workspaceId, docId);
+
+    // Extract initial elements for comparison
+    const initialElements = this.extractEdgelessElementsFromDoc(doc);
+
+    // Cache the document state
+    this.docCache.set(cacheKey, {
+      doc,
+      lastElements: initialElements,
+    });
+
+    this.observedDocs.add(cacheKey);
+    this.onDocumentChange = callback;
+
+    // Listen for broadcast updates from AFFiNE server
+    const handleBroadcast = (data: {
+      spaceType: string;
+      spaceId: string;
+      docId: string;
+      update: string;
+      timestamp?: number;
+    }) => {
+      // Check if this update is for our document
+      if (data.spaceId !== workspaceId || data.docId !== docId) {
+        return;
+      }
+
+      console.log(`[AffineClient] Broadcast update received for ${cacheKey}`);
+
+      try {
+        // Decode the base64 update
+        const updateBuffer = Buffer.from(data.update, 'base64');
+
+        // Get cached doc
+        const cached = this.docCache.get(cacheKey);
+        if (!cached) {
+          console.warn(`[AffineClient] No cached doc for ${cacheKey}`);
+          return;
+        }
+
+        // Apply the Y.js update to our local doc
+        Y.applyUpdate(cached.doc, updateBuffer);
+
+        // Extract new elements
+        const newElements = this.extractEdgelessElementsFromDoc(cached.doc);
+
+        // Compute diff and emit changes
+        this.computeAndEmitChanges(cached.lastElements, newElements, callback);
+
+        // Update cache
+        cached.lastElements = newElements;
+      } catch (error) {
+        console.error(`[AffineClient] Error processing broadcast:`, error);
+      }
+    };
+
+    // Register the broadcast listener
+    socket.on('space:broadcast-doc-update', handleBroadcast);
+
+    console.log(`[AffineClient] Now observing document ${cacheKey}`);
+  }
+
+  /**
+   * Stop observing a document.
+   */
+  stopObserving(workspaceId: string, docId: string): void {
+    const cacheKey = `${workspaceId}:${docId}`;
+    this.observedDocs.delete(cacheKey);
+    this.docCache.delete(cacheKey);
+    this.onDocumentChange = undefined;
+    console.log(`[AffineClient] Stopped observing ${cacheKey}`);
+  }
+
+  /**
+   * Extract edgeless elements from a Y.Doc.
+   * Returns a Map of elementId -> element data for easy comparison.
+   */
+  private extractEdgelessElementsFromDoc(doc: Y.Doc): Map<string, Record<string, unknown>> {
+    const result = new Map<string, Record<string, unknown>>();
+
+    try {
+      const blocks = doc.getMap<Y.Map<unknown>>('blocks');
+
+      // Find surface block
+      let surfaceBlock: Y.Map<unknown> | null = null;
+      blocks.forEach((blockData) => {
+        if (blockData instanceof Y.Map && blockData.get('sys:flavour') === 'affine:surface') {
+          surfaceBlock = blockData;
+        }
+      });
+
+      if (!surfaceBlock) {
+        return result;
+      }
+
+      // Get elements map
+      const elementsMap = this.getElementsMap(surfaceBlock);
+
+      // Convert to Map with proper JSON conversion
+      this.forEachElement(elementsMap, (elementData: unknown) => {
+        if (typeof elementData === 'object' && elementData !== null) {
+          let element: Record<string, unknown>;
+
+          if (elementData instanceof Y.Map || elementData instanceof Y.Array) {
+            element = elementData.toJSON() as Record<string, unknown>;
+          } else if ('toJSON' in elementData && typeof (elementData as { toJSON: () => unknown }).toJSON === 'function') {
+            element = (elementData as { toJSON: () => unknown }).toJSON() as Record<string, unknown>;
+          } else {
+            element = { ...(elementData as Record<string, unknown>) };
+          }
+
+          // Parse xywh if needed
+          if ('xywh' in element && typeof element.xywh === 'string') {
+            try {
+              element.xywh = JSON.parse(element.xywh as string);
+            } catch {
+              // Keep as string
+            }
+          }
+
+          const id = element.id as string;
+          if (id) {
+            result.set(id, element);
+          }
+        }
+      });
+    } catch (error) {
+      console.error('[AffineClient] Error extracting elements:', error);
+    }
+
+    return result;
+  }
+
+  /**
+   * Compare old and new element states, emit appropriate change events.
+   */
+  private computeAndEmitChanges(
+    oldElements: Map<string, Record<string, unknown>>,
+    newElements: Map<string, Record<string, unknown>>,
+    callback: (change: DocumentChange) => void,
+  ): void {
+    // Check for added elements
+    for (const [id, element] of newElements) {
+      if (!oldElements.has(id)) {
+        console.log(`[AffineClient] Element added: ${id}`);
+        callback({
+          type: 'add',
+          element,
+        });
+      }
+    }
+
+    // Check for removed elements
+    for (const [id] of oldElements) {
+      if (!newElements.has(id)) {
+        console.log(`[AffineClient] Element removed: ${id}`);
+        callback({
+          type: 'remove',
+          elementId: id,
+        });
+      }
+    }
+
+    // Check for updated elements
+    for (const [id, newElement] of newElements) {
+      const oldElement = oldElements.get(id);
+      if (oldElement) {
+        // Simple JSON comparison (could be optimized)
+        const oldJson = JSON.stringify(oldElement);
+        const newJson = JSON.stringify(newElement);
+
+        if (oldJson !== newJson) {
+          console.log(`[AffineClient] Element updated: ${id}`);
+          callback({
+            type: 'update',
+            elementId: id,
+            element: newElement,
+          });
+        }
+      }
+    }
+  }
 }
+
+/**
+ * Types for document change events.
+ */
+export type DocumentChange =
+  | { type: 'add'; element: Record<string, unknown> }
+  | { type: 'remove'; elementId: string }
+  | { type: 'update'; elementId: string; element: Record<string, unknown> };
