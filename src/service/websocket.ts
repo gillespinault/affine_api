@@ -516,15 +516,8 @@ export function registerWebSocketRoute(fastify: FastifyInstance, config: WebSock
     const clientId = `${req.ip}:${Math.random().toString(36).substring(7)}`;
     console.log(`[WS] New connection: ${clientId}`);
 
-    // Debug: what is socket?
-    console.log(`[WS] DEBUG socket type: ${typeof socket}`);
-    console.log(`[WS] DEBUG socket constructor: ${socket?.constructor?.name}`);
-    console.log(`[WS] DEBUG socket.on type: ${typeof socket?.on}`);
-    console.log(`[WS] DEBUG socket keys: ${Object.keys(socket || {}).slice(0, 10).join(', ')}`);
-
-    // If socket is a SocketStream (from older API), use socket.socket
-    const ws = socket.socket || socket;
-    console.log(`[WS] DEBUG ws.on type: ${typeof ws?.on}`);
+    // @fastify/websocket@10: first arg is FastifyRequest with .ws property containing the WebSocket
+    const ws = socket.ws;
 
     // Handle incoming messages
     ws.on('message', async (data: Buffer) => {
