@@ -1684,8 +1684,16 @@ export class AffineClient {
             let offset = 0;
             for (const op of delta) {
               if (op.insert) {
-                ytext.insert(offset, op.insert, op.attributes);
-                offset += op.insert.length;
+                // Reference nodes (LinkedPage, etc.) must be exactly one space character
+                // BlockSuite expects: insert=' ' + attributes={reference:{type,pageId}}
+                // The displayed text is resolved dynamically from the pageId
+                if (op.attributes && 'reference' in op.attributes) {
+                  ytext.insert(offset, ' ', op.attributes);
+                  offset += 1;
+                } else {
+                  ytext.insert(offset, op.insert, op.attributes);
+                  offset += op.insert.length;
+                }
               }
             }
           } else if (value && typeof value === 'object') {
@@ -2312,7 +2320,9 @@ export class AffineClient {
       this.setElement(elementsMap, elementId, finalElement);
     });
 
-    await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
+    console.log(`[AffineClient] Pushing doc update for element ${elementId}...`);
+    const pushResult = await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
+    console.log(`[AffineClient] Push result:`, JSON.stringify(pushResult));
 
     // Return element with parsed xywh
     const returnElement = { ...processedElement };

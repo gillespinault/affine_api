@@ -311,6 +311,9 @@ async function handleBrush(socket: WebSocket, message: BrushMessage): Promise<vo
     const maxY = Math.max(...ys);
     const xywh = [minX, minY, maxX - minX, maxY - minY];
 
+    console.log(`[WS] BRUSH: Calculated xywh=[${xywh.join(',')}]`);
+    console.log(`[WS] BRUSH: Calling client.addEdgelessElement...`);
+
     // Create brush element in AFFiNE via Yjs
     const element = await client.addEdgelessElement(workspaceId, docId, {
       type: 'brush',
@@ -319,6 +322,8 @@ async function handleBrush(socket: WebSocket, message: BrushMessage): Promise<vo
       lineWidth: message.lineWidth || 6,
       xywh,
     });
+
+    console.log(`[WS] BRUSH: Element returned:`, JSON.stringify(element).slice(0, 200));
 
     // Broadcast to other clients
     broadcastToDocument(workspaceId, docId, {
