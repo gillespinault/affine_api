@@ -99,6 +99,23 @@ export const CONNECTOR_DEFAULTS = {
 };
 
 // ============================================================================
+// Brush Defaults (from brush/brush.ts)
+// ============================================================================
+
+export const BRUSH_DEFAULTS = {
+  // Geometry
+  rotate: 0,
+  xywh: '[0,0,0,0]',
+
+  // Points (relative to xywh)
+  points: [],
+
+  // Style
+  color: '--affine-palette-line-black', // DefaultTheme.black
+  lineWidth: 4,
+};
+
+// ============================================================================
 // Text Defaults (from text/text.ts)
 // ============================================================================
 
@@ -161,6 +178,9 @@ export function applyElementDefaults(
       break;
     case 'connector':
       defaults = { ...CONNECTOR_DEFAULTS };
+      break;
+    case 'brush':
+      defaults = { ...BRUSH_DEFAULTS };
       break;
     case 'text':
       defaults = { ...TEXT_DEFAULTS };

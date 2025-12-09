@@ -255,9 +255,18 @@ export interface CreateMindmapInput {
   rootNodeId: string;
 }
 
+export interface CreateBrushInput {
+  points: number[][];
+  color?: string;
+  lineWidth?: number;
+  rotate?: number;
+  xywh?: number[] | string;
+}
+
 export type CreateElementInput =
   | ({ type: 'connector' } & CreateConnectorInput)
   | ({ type: 'shape' } & CreateShapeInput)
+  | ({ type: 'brush' } & CreateBrushInput)
   | ({ type: 'text' } & CreateTextInput)
   | ({ type: 'group' } & CreateGroupInput)
   | ({ type: 'mindmap' } & CreateMindmapInput);
