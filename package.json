@@ -31,6 +31,7 @@
     "prepare": "npm run build"
   },
   "dependencies": {
+    "@fastify/websocket": "^11.2.0",
     "@modelcontextprotocol/sdk": "^1.21.0",
     "@types/express": "^5.0.5",
     "express": "^5.1.0",
@@ -48,6 +49,7 @@
   "devDependencies": {
     "@tsconfig/node20": "^20.1.2",
     "@types/node": "^22.7.5",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.11.0",
     "@typescript-eslint/parser": "^8.11.0",
     "eslint": "^9.13.0",

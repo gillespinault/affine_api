@@ -1,7 +1,9 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import fastifyWebsocket from '@fastify/websocket';
 import { AffineClient, type CopilotDocChunk, type CopilotFileChunk } from '../client/index.js';
 import type { AffineClientOptions } from '../client/index.js';
 import { registerKarakeepWebhook, type KarakeepWebhookConfig } from './webhooks/index.js';
+import { registerWebSocketRoute } from './websocket.js';
 
 type DocumentPayload = {
   title?: string;
@@ -128,6 +130,9 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     bodyLimit: 15 * 1024 * 1024, // 15MB to accommodate 10MB files in base64
   });
   const credentialProvider = config.credentialProvider ?? new EnvCredentialProvider();
+
+  // Register WebSocket plugin
+  app.register(fastifyWebsocket);
 
   app.get('/healthz', async (_request, reply) => {
     reply.send({ status: 'ok' });
@@ -2080,6 +2085,16 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     registerKarakeepWebhook(app, config.karakeepWebhook);
     app.log.info('Karakeep webhook registered at /webhooks/karakeep');
   }
+
+  // ============================================================================
+  // WebSocket Route for Real-time Canvas Collaboration
+  // ============================================================================
+
+  registerWebSocketRoute(app, {
+    credentialProvider,
+    baseUrl: config.baseUrl,
+  });
+  app.log.info('WebSocket route registered at GET /canvas');
 
   return app;
 }
