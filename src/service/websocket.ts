@@ -309,18 +309,30 @@ async function handleBrush(socket: WebSocket, message: BrushMessage): Promise<vo
     const minY = Math.min(...ys);
     const maxX = Math.max(...xs);
     const maxY = Math.max(...ys);
-    const xywh = [minX, minY, maxX - minX, maxY - minY];
+    const w = maxX - minX;
+    const h = maxY - minY;
 
-    console.log(`[WS] BRUSH: Calculated xywh=[${xywh.join(',')}]`);
-    console.log(`[WS] BRUSH: Calling client.addEdgelessElement...`);
+    // Convert points to relative coordinates (relative to bounding box)
+    // This is required by AFFiNE's brush element format
+    const relativePoints = message.points.map(([x, y, pressure]) => {
+      const relX = x - minX;
+      const relY = y - minY;
+      return pressure !== undefined ? [relX, relY, pressure] : [relX, relY];
+    });
 
-    // Create brush element in AFFiNE via Yjs
+    const lineWidth = message.lineWidth || 4;
+    // Map hex colors to AFFiNE palette or use default
+    const color = message.color || '--affine-palette-line-black';
+
+    console.log(`[WS] BRUSH: xywh=[${minX},${minY},${w},${h}], ${relativePoints.length} relative points`);
+
+    // Create brush element in AFFiNE via Yjs (same format as REST endpoint)
     const element = await client.addEdgelessElement(workspaceId, docId, {
       type: 'brush',
-      points: message.points,
-      color: message.color || '#000000',
-      lineWidth: message.lineWidth || 6,
-      xywh,
+      xywh: [minX, minY, w, h],
+      points: relativePoints,
+      color,
+      lineWidth,
     });
 
     console.log(`[WS] BRUSH: Element returned:`, JSON.stringify(element).slice(0, 200));
