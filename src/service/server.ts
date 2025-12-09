@@ -1553,6 +1553,94 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
   // Edgeless Mode Endpoints
   // ============================================================================
 
+  /**
+   * POST /workspaces/:workspaceId/documents/:docId/edgeless/brush
+   * Add a brush stroke to the document.
+   * Body: { points: [[x,y,pressure?],...], color?: string, lineWidth?: number }
+   * Returns: { id, type, xywh, points, color, lineWidth, index }
+   */
+  app.post(
+    '/workspaces/:workspaceId/documents/:docId/edgeless/brush',
+    async (request, reply) => {
+      const { workspaceId, docId } = request.params as {
+        workspaceId: string;
+        docId: string;
+      };
+      const body = (request.body ?? {}) as {
+        points?: unknown;
+        color?: string;
+        lineWidth?: number;
+      };
+      const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+      // Validate points
+      if (!Array.isArray(body.points) || body.points.length === 0) {
+        reply.code(400).send({ error: 'points array is required and cannot be empty' });
+        return;
+      }
+
+      // Validate each point
+      const points: number[][] = [];
+      for (const pt of body.points) {
+        if (!Array.isArray(pt) || pt.length < 2) {
+          reply.code(400).send({
+            error: 'each point must be an array of at least 2 numbers [x,y] or [x,y,pressure]',
+          });
+          return;
+        }
+        const [x, y, pressure] = pt;
+        if (typeof x !== 'number' || typeof y !== 'number') {
+          reply.code(400).send({ error: 'point coordinates must be numbers' });
+          return;
+        }
+        if (pressure !== undefined && typeof pressure !== 'number') {
+          reply.code(400).send({ error: 'pressure must be a number' });
+          return;
+        }
+        points.push(pressure !== undefined ? [x, y, pressure] : [x, y]);
+      }
+
+      // Calculate bounding box from points
+      const xs = points.map(p => p[0]);
+      const ys = points.map(p => p[1]);
+      const minX = Math.min(...xs);
+      const minY = Math.min(...ys);
+      const maxX = Math.max(...xs);
+      const maxY = Math.max(...ys);
+      const w = maxX - minX;
+      const h = maxY - minY;
+
+      // Convert points to relative coordinates (relative to bounding box)
+      const lineWidth = body.lineWidth ?? 4;
+      const relativePoints = points.map(([x, y, pressure]) => {
+        const relX = x - minX;
+        const relY = y - minY;
+        return pressure !== undefined ? [relX, relY, pressure] : [relX, relY];
+      });
+
+      const client = createClient(config);
+      try {
+        await client.signIn(email, password);
+        await client.connectSocket();
+
+        const element = await client.addEdgelessElement(workspaceId, docId, {
+          type: 'brush',
+          xywh: [minX, minY, w, h],
+          points: relativePoints,
+          color: body.color ?? '--affine-palette-line-black',
+          lineWidth,
+        });
+
+        reply.code(201).send(element);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        reply.code(500).send({ error: message });
+      } finally {
+        await client.disconnect();
+      }
+    },
+  );
+
   app.get('/workspaces/:workspaceId/documents/:docId/edgeless', async (request, reply) => {
     const { workspaceId, docId } = request.params as { workspaceId: string; docId: string };
     const { email, password } = await credentialProvider.getCredentials(workspaceId);
