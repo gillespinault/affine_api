@@ -31,7 +31,7 @@
     "prepare": "npm run build"
   },
   "dependencies": {
-    "@fastify/websocket": "^11.2.0",
+    "@fastify/websocket": "^10.0.1",
     "@modelcontextprotocol/sdk": "^1.21.0",
     "@types/express": "^5.0.5",
     "express": "^5.1.0",
