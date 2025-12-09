@@ -150,9 +150,10 @@ POST   /workspaces/:workspaceId/blobs                             # Upload fichi
 POST   /workspaces/:workspaceId/documents/:docId/images           # Upload image + créer bloc affine:image
 ```
 
-### Edgeless Mode (5 endpoints - ✅ FONCTIONNEL)
+### Edgeless Mode (6 endpoints - ✅ FONCTIONNEL)
 ```bash
 GET    /workspaces/:workspaceId/documents/:docId/edgeless                      # Lister éléments canvas
+POST   /workspaces/:workspaceId/documents/:docId/edgeless/brush                # Créer brush stroke (optimisé pour drawing apps)
 POST   /workspaces/:workspaceId/documents/:docId/edgeless/elements             # Créer élément (shape, connector, text, group, mindmap)
 GET    /workspaces/:workspaceId/documents/:docId/edgeless/elements/:elementId  # Récupérer élément
 PATCH  /workspaces/:workspaceId/documents/:docId/edgeless/elements/:elementId  # Modifier élément
@@ -1070,7 +1071,8 @@ Le mode **Edgeless** d'AFFiNE est un canvas infini type Miro/Notion Canvas perme
 
 #### Architecture des éléments Edgeless
 
-**5 types d'éléments supportés** :
+**6 types d'éléments supportés** :
+- **`brush`** - Traits de stylet/pinceau (dessin à main levée)
 - **`shape`** - Formes géométriques (rect, ellipse, diamond, triangle) avec texte
 - **`connector`** - Flèches et connecteurs entre éléments
 - **`text`** - Blocs de texte flottants
@@ -1117,6 +1119,74 @@ curl https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/documents/DOC_ID
 
 **⚠️ Prérequis important** :
 Le document doit avoir été ouvert au moins une fois en mode Edgeless dans l'interface AFFiNE pour initialiser la structure `surface block`. Sinon, vous obtiendrez l'erreur `"Elements value not found"`.
+
+#### Créer un Brush Stroke (dessin à main levée) ⭐ NOUVEAU
+
+**Endpoint optimisé pour applications de dessin** comme [affine-boox-client](https://github.com/your-org/affine-boox-client).
+
+```bash
+curl -X POST https://affine-api.robotsinlove.be/workspaces/WORKSPACE_ID/documents/DOC_ID/edgeless/brush \
+  -H "Content-Type: application/json" \
+  -d '{
+    "points": [
+      [100.5, 150.3, 0.8],
+      [102.1, 151.7, 0.85],
+      [105.8, 154.2, 0.9],
+      [110.3, 157.9, 0.95]
+    ],
+    "color": "--affine-palette-line-black",
+    "lineWidth": 6
+  }'
+```
+
+**Paramètres Brush** :
+- **`points`** *(requis)* : Array de `[x, y, pressure?]` - Coordonnées absolues du trait
+  - `x`, `y` : Coordonnées absolues sur le canvas (en pixels)
+  - `pressure` *(optionnel)* : Pression du stylet (0.0 à 1.0, défaut: 0.5)
+- **`color`** *(optionnel)* : Couleur CSS ou variable AFFiNE (défaut: `--affine-palette-line-black`)
+  - Variables AFFiNE : `--affine-palette-line-{black|blue|red|green|yellow|...}`
+  - Hex standard : `#FF5722`, `#4CAF50`, etc.
+- **`lineWidth`** *(optionnel)* : Épaisseur du trait (défaut: `4`)
+
+**Transformation automatique** :
+L'API calcule automatiquement :
+1. **Bounding box** : `[minX, minY, width, height]` depuis les coordonnées absolues
+2. **Coordonnées relatives** : Conversion `points` en coordonnées relatives au bounding box
+3. **Propriétés BlockSuite** : `rotate`, `index`, `seed`
+
+**Réponse** (HTTP 201) :
+```json
+{
+  "id": "brush-abc123",
+  "type": "brush",
+  "xywh": [100.5, 150.3, 9.8, 7.6],
+  "points": [
+    [0, 0, 0.8],
+    [1.6, 1.4, 0.85],
+    [5.3, 3.9, 0.9],
+    [9.8, 7.6, 0.95]
+  ],
+  "color": "--affine-palette-line-black",
+  "lineWidth": 6,
+  "rotate": 0,
+  "index": "a0",
+  "seed": 1234567890
+}
+```
+
+**Cas d'usage** :
+- **Applications de dessin** : Tablettes Boox, iPad apps, stylets actifs
+- **Annotations** : Markup sur documents, schémas annotés
+- **Signatures** : Capture de signatures manuscrites
+
+**Architecture (affine-boox-client)** :
+```
+Tablette Boox → OnyxDrawingController → AffineHttpClient
+                                              ↓ POST /edgeless/brush
+                                        notebooks_api
+                                              ↓ Yjs doc.getMap('blocks')
+                                        AFFiNE Web (temps réel)
+```
 
 #### Créer un élément Shape (rectangle, cercle, diamant)
 

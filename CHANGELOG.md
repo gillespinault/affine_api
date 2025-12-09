@@ -5,6 +5,70 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2025-12-09
+
+### Added
+
+- **Brush Stroke API** : Endpoint optimisé pour applications de dessin
+  - `POST /workspaces/:workspaceId/documents/:docId/edgeless/brush` - Créer brush stroke (dessin à main levée)
+  - Format: `{ points: [[x,y,pressure]...], color?: string, lineWidth?: number }`
+  - **Transformations automatiques** :
+    - Calcul bounding box depuis coordonnées absolues
+    - Conversion points en coordonnées relatives
+    - Génération index, seed, rotate
+  - Client method: `addEdgelessElement(workspaceId, docId, { type: 'brush', points, color, lineWidth })`
+  - Utilisé par [affine-boox-client](https://github.com/your-org/affine-boox-client) pour synchronisation temps réel
+
+- **BRUSH_DEFAULTS** : Valeurs par défaut pour éléments brush
+  - `element-defaults.ts` - Définition constante BRUSH_DEFAULTS
+  - `applyElementDefaults()` - Case 'brush' ajouté au switch
+
+### Changed
+
+- **CreateElementInput Type** : Support type 'brush' dans union type
+  - `CreateBrushInput` interface ajoutée (`edgeless.ts`)
+  - `CreateElementInput` union type étendu avec `({ type: 'brush' } & CreateBrushInput)`
+
+### Technical Details
+
+- **Architecture simplifiée** pour drawing apps :
+  ```
+  Android app → POST /edgeless/brush → notebooks_api → Yjs → AFFiNE Web
+  ```
+- **Bounding box** : `[minX, minY, maxX - minX, maxY - minY]`
+- **Coordonnées relatives** : `relativePoint = [x - minX, y - minY, pressure]`
+- **Format BlockSuite** : Conforme au format natif d'AFFiNE Edgeless
+
+## [0.5.0] - 2025-12-08
+
+### Added
+
+- **Custom Properties API** : Support métadonnées dans le panneau Info d'AFFiNE
+  - `updateDocumentProperties(docId, { tags, customProperties })` - Définir propriétés personnalisées
+  - Supporte `source_url`, `author`, `published_date` et autres champs custom
+  - Utilisé pour enrichir les articles importés depuis Karakeep
+
+- **Karakeep Integration** : Client et webhooks pour Karakeep bookmark manager
+  - `src/client/karakeep/client.ts` - Client API Karakeep
+  - `src/service/webhooks/karakeep-handler.ts` - Handler webhook
+  - `src/service/webhooks/zettel-generator.ts` - Générateur de zettels
+
+### Fixed
+
+- **BlockSuite Delta Format** : Correction du format delta avec attributs
+  - `addBlock()` convertit correctement `$blocksuite:internal:text$` en Y.Text
+  - Préserve les attributs (LinkedPage, bold, italic, etc.)
+  - Résout le bug des blocs apparaissant vides dans l'UI AFFiNE
+
+- **Missing Document Properties** : Gestion des documents sans `docCustomPropertyInfo`
+  - Évite les erreurs lors de la lecture de documents incomplets
+
+### Technical Details
+
+- Le format BlockSuite delta utilise un marker spécial `$blocksuite:internal:text$: true`
+- Les attributs comme `{ reference: { type: 'LinkedPage', pageId: '...' } }` sont préservés
+- La conversion Y.Text applique les attributs via `insert(text, attributes)`
+
 ## [0.4.0] - 2025-11-27
 
 ### Added
