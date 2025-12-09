@@ -511,13 +511,20 @@ export interface WebSocketConfig {
  * Register WebSocket route for real-time canvas collaboration
  */
 export function registerWebSocketRoute(fastify: FastifyInstance, config: WebSocketConfig): void {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  fastify.get('/canvas', { websocket: true }, (socket: any, req) => {
+  // @fastify/websocket@10: handler receives (socket: WebSocket, request: FastifyRequest)
+  // The socket IS the WebSocket instance directly from the 'ws' library
+  fastify.get('/canvas', { websocket: true }, (socket: WebSocket, req) => {
     const clientId = `${req.ip}:${Math.random().toString(36).substring(7)}`;
     console.log(`[WS] New connection: ${clientId}`);
 
-    // @fastify/websocket@10: first arg is FastifyRequest with .ws property containing the WebSocket
-    const ws = socket.ws;
+    // Detailed debug logging
+    console.log(`[WS] DEBUG: socket type=${typeof socket}, constructor=${socket?.constructor?.name}`);
+    console.log(`[WS] DEBUG: socket.on type=${typeof socket?.on}`);
+    console.log(`[WS] DEBUG: socket.send type=${typeof socket?.send}`);
+    console.log(`[WS] DEBUG: req.ws=${req?.ws}, req.constructor=${req?.constructor?.name}`);
+
+    // Verify socket is a WebSocket
+    const ws = socket;
 
     // Handle incoming messages
     ws.on('message', async (data: Buffer) => {
