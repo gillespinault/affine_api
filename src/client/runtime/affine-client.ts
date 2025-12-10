@@ -4459,29 +4459,37 @@ export class AffineClient {
     try {
       const { doc } = await this.loadOrCreateWorkspaceDoc(workspaceId, favoriteDocId);
 
-      // The favorite YDoc contains a map where:
-      // - Key format: ${type}:${id} (e.g., "doc:abc123", "collection:xyz789")
-      // - Value: { key: string, index: string }
-      const dataMap = doc.getMap<unknown>('data');
-
+      // The favorite YDoc uses YjsDBAdapter structure:
+      // Each entry is stored as a YMap in doc.share with key = primaryKey value
+      // Structure: doc.share.get("doc:abc123") -> YMap({ key: "doc:abc123", index: "a0" })
       const favorites: FavoriteInfo[] = [];
 
-      if (dataMap) {
-        dataMap.forEach((value, key) => {
-          if (typeof key === 'string' && value && typeof value === 'object') {
-            const entry = value as { index?: string };
-            const parsed = this.parseFavoriteKey(key);
-            if (parsed) {
-              favorites.push({
-                workspaceId,
-                type: parsed.type,
-                id: parsed.id,
-                index: entry.index ?? 'a0',
-              });
-            }
-          }
-        });
-      }
+      // Iterate over all shared types in the doc
+      doc.share.forEach((ymap, shareKey) => {
+        // Skip special keys and deleted entries
+        if (shareKey.startsWith('$$') || shareKey === 'data') return;
+
+        // Get the entry data
+        const entry = ymap.toJSON() as Record<string, unknown>;
+        if (!entry || typeof entry !== 'object') return;
+
+        // Check for deletion flag
+        if (entry['$$DELETED']) return;
+
+        // The key field contains the actual key (e.g., "doc:abc123")
+        const keyValue = (entry.key as string) || shareKey;
+        const indexValue = (entry.index as string) || 'a0';
+
+        const parsed = this.parseFavoriteKey(keyValue);
+        if (parsed) {
+          favorites.push({
+            workspaceId,
+            type: parsed.type,
+            id: parsed.id,
+            index: indexValue,
+          });
+        }
+      });
 
       // Sort by index (lexicographic order)
       favorites.sort((a, b) => a.index.localeCompare(b.index));
@@ -4521,16 +4529,20 @@ export class AffineClient {
     const favoriteDocId = `userdata$${this.userId}$favorite`;
     const { doc, stateVector } = await this.loadOrCreateWorkspaceDoc(workspaceId, favoriteDocId);
 
-    const dataMap = doc.getMap<Y.Map<unknown>>('data');
     const key = `doc:${docId}`;
 
     // Generate a sort index (simple: use 'a' prefix + timestamp)
     const index = `a${Date.now().toString(36)}`;
 
-    const entryMap = new Y.Map();
-    entryMap.set('key', key);
-    entryMap.set('index', index);
-    dataMap.set(key, entryMap);
+    // YjsDBAdapter stores entries as YMaps in doc.share with key = primaryKey value
+    // The YMap structure is: { key: "doc:docId", index: "a..." }
+    const entryMap = doc.getMap(key);
+    doc.transact(() => {
+      entryMap.set('key', key);
+      entryMap.set('index', index);
+      // Remove deletion flag if present
+      entryMap.delete('$$DELETED');
+    });
 
     await this.pushWorkspaceDocUpdate(workspaceId, favoriteDocId, doc, stateVector);
 
@@ -4556,10 +4568,16 @@ export class AffineClient {
     const favoriteDocId = `userdata$${this.userId}$favorite`;
     const { doc, stateVector } = await this.loadOrCreateWorkspaceDoc(workspaceId, favoriteDocId);
 
-    const dataMap = doc.getMap<unknown>('data');
     const key = `doc:${docId}`;
 
-    dataMap.delete(key);
+    // YjsDBAdapter marks entries as deleted with a $$DELETED flag
+    // rather than actually removing them from doc.share
+    if (doc.share.has(key)) {
+      const entryMap = doc.getMap(key);
+      doc.transact(() => {
+        entryMap.set('$$DELETED', true);
+      });
+    }
 
     await this.pushWorkspaceDocUpdate(workspaceId, favoriteDocId, doc, stateVector);
   }
