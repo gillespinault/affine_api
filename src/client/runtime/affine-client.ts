@@ -4614,17 +4614,29 @@ export class AffineClient {
       // Structure: doc.share.get("doc:abc123") -> YMap({ key: "doc:abc123", index: "a0" })
       const favorites: FavoriteInfo[] = [];
 
-      // Debug: log the share keys
+      // Debug: log the share keys and their types
       console.log(`[AffineClient] getFavorites: doc.share keys:`, Array.from(doc.share.keys()));
+      console.log(`[AffineClient] getFavorites: doc.share size:`, doc.share.size);
 
       // Iterate over all shared types in the doc
-      doc.share.forEach((ymap, shareKey) => {
-        // Skip special keys and deleted entries
-        if (shareKey.startsWith('$$') || shareKey === 'data') return;
+      let iterCount = 0;
+      doc.share.forEach((yvalue, shareKey) => {
+        iterCount++;
+        console.log(`[AffineClient] getFavorites: Iter #${iterCount} - key=${shareKey}, type=${yvalue?.constructor?.name}`);
 
-        // Get the entry data
-        const entry = ymap.toJSON() as Record<string, unknown>;
-        if (!entry || typeof entry !== 'object') return;
+        // Skip special keys and deleted entries
+        if (shareKey.startsWith('$$') || shareKey === 'data') {
+          console.log(`[AffineClient] getFavorites: Skipping key ${shareKey} (special)`);
+          return;
+        }
+
+        // Get the entry data - yvalue could be YMap or other type
+        const entry = yvalue.toJSON() as Record<string, unknown>;
+        console.log(`[AffineClient] getFavorites: Entry JSON for ${shareKey}:`, JSON.stringify(entry));
+        if (!entry || typeof entry !== 'object') {
+          console.log(`[AffineClient] getFavorites: Invalid entry for ${shareKey}`);
+          return;
+        }
 
         // Debug: log the entry
         console.log(`[AffineClient] getFavorites: entry for key ${shareKey}:`, entry);
