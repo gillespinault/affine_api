@@ -26,6 +26,9 @@ export {
   type AccessTokenInfo,
   type DocumentPublicationInfo,
   type DocumentChange,
+  type FavoriteType,
+  type FavoriteRecord,
+  type FavoriteInfo,
 } from './runtime/affine-client.js';
 export { createDocYStructure, nanoid } from './runtime/doc-structure.js';
 export { createDocYStructureFromMarkdown } from './markdown/markdown-to-yjs.js';

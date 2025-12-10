@@ -824,6 +824,147 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     }
   });
 
+  // ========================================================================
+  // FAVORITES ENDPOINTS (per-user, synced to server)
+  // ========================================================================
+
+  /**
+   * Get all favorites for the current user in a workspace.
+   * GET /workspaces/:workspaceId/favorites
+   * Returns: { favorites: FavoriteInfo[] }
+   */
+  app.get('/workspaces/:workspaceId/favorites', async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+    const client = createClient(config);
+    try {
+      await client.signIn(email, password);
+      await client.connectSocket();
+      await client.joinWorkspace(workspaceId);
+
+      const favorites = await client.getFavorites(workspaceId);
+      reply.send({ favorites });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  /**
+   * Get all favorites across all workspaces.
+   * GET /favorites
+   * Returns: { favorites: FavoriteInfo[] }
+   */
+  app.get('/favorites', async (_request, reply) => {
+    const { email, password } = await credentialProvider.getCredentials('');
+
+    const client = createClient(config);
+    try {
+      await client.signIn(email, password);
+      const workspaces = await client.listWorkspaces();
+
+      const allFavorites = [];
+      for (const ws of workspaces) {
+        await client.connectSocket();
+        await client.joinWorkspace(ws.id);
+        const favorites = await client.getFavorites(ws.id);
+        allFavorites.push(...favorites);
+      }
+
+      reply.send({ favorites: allFavorites });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  /**
+   * Check if a document is favorited.
+   * GET /workspaces/:workspaceId/documents/:docId/favorite
+   * Returns: { isFavorite: boolean }
+   */
+  app.get('/workspaces/:workspaceId/documents/:docId/favorite', async (request, reply) => {
+    const { workspaceId, docId } = request.params as { workspaceId: string; docId: string };
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+    const client = createClient(config);
+    try {
+      await client.signIn(email, password);
+      await client.connectSocket();
+      await client.joinWorkspace(workspaceId);
+
+      const isFavorite = await client.isDocFavorited(workspaceId, docId);
+      reply.send({ isFavorite });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  /**
+   * Add a document to favorites.
+   * POST /workspaces/:workspaceId/documents/:docId/favorite
+   * Returns: { favorite: FavoriteInfo }
+   */
+  app.post('/workspaces/:workspaceId/documents/:docId/favorite', async (request, reply) => {
+    const { workspaceId, docId } = request.params as { workspaceId: string; docId: string };
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+    const client = createClient(config);
+    try {
+      await client.signIn(email, password);
+      await client.connectSocket();
+      await client.joinWorkspace(workspaceId);
+
+      const favorite = await client.addDocToFavorites(workspaceId, docId);
+      reply.code(201).send({ favorite });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  /**
+   * Remove a document from favorites.
+   * DELETE /workspaces/:workspaceId/documents/:docId/favorite
+   * Returns: 204 No Content
+   */
+  app.delete('/workspaces/:workspaceId/documents/:docId/favorite', async (request, reply) => {
+    const { workspaceId, docId } = request.params as { workspaceId: string; docId: string };
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+    const client = createClient(config);
+    try {
+      await client.signIn(email, password);
+      await client.connectSocket();
+      await client.joinWorkspace(workspaceId);
+
+      await client.removeDocFromFavorites(workspaceId, docId);
+      reply.code(204).send();
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  /**
+   * Toggle favorite status for a document.
+   * POST /workspaces/:workspaceId/documents/:docId/favorite/toggle
+   * Returns: { isFavorite: boolean }
+   */
+  app.post('/workspaces/:workspaceId/documents/:docId/favorite/toggle', async (request, reply) => {
+    const { workspaceId, docId } = request.params as { workspaceId: string; docId: string };
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+    const client = createClient(config);
+    try {
+      await client.signIn(email, password);
+      await client.connectSocket();
+      await client.joinWorkspace(workspaceId);
+
+      const isFavorite = await client.toggleDocFavorite(workspaceId, docId);
+      reply.send({ isFavorite });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
   app.post('/workspaces/:workspaceId/folders', async (request, reply) => {
     const { workspaceId } = request.params as { workspaceId: string };
     const body = (request.body ?? {}) as { name?: string; parentId?: string | null };

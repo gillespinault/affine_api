@@ -218,6 +218,22 @@ export interface BlobInfo {
   createdAt: string;
 }
 
+/**
+ * A favorite record stored in AFFiNE userdata.
+ * Favorites are per-user and synced to the server.
+ */
+export type FavoriteType = 'doc' | 'collection' | 'tag' | 'folder';
+
+export interface FavoriteRecord {
+  type: FavoriteType;
+  id: string;
+  index: string; // Sort order (lexicographic)
+}
+
+export interface FavoriteInfo extends FavoriteRecord {
+  workspaceId: string;
+}
+
 export function parseSetCookies(headers: Array<string | undefined> = []) {
   const jar = new Map<string, string>();
   for (const header of headers) {
@@ -4420,6 +4436,168 @@ export class AffineClient {
         }
       }
     }
+  }
+
+  // ========================================================================
+  // FAVORITES (per-user, synced to server)
+  // ========================================================================
+
+  /**
+   * Get all favorites for the current user in a workspace.
+   * Favorites are stored in userdata$userId$favorite YDoc.
+   *
+   * @param workspaceId The workspace ID
+   * @returns Array of favorite records with type, id, and sort index
+   */
+  async getFavorites(workspaceId: string): Promise<FavoriteInfo[]> {
+    if (!this.userId) {
+      throw new Error('User id unavailable: signIn must complete before getFavorites.');
+    }
+
+    const favoriteDocId = `userdata$${this.userId}$favorite`;
+
+    try {
+      const { doc } = await this.loadOrCreateWorkspaceDoc(workspaceId, favoriteDocId);
+
+      // The favorite YDoc contains a map where:
+      // - Key format: ${type}:${id} (e.g., "doc:abc123", "collection:xyz789")
+      // - Value: { key: string, index: string }
+      const dataMap = doc.getMap<unknown>('data');
+
+      const favorites: FavoriteInfo[] = [];
+
+      if (dataMap) {
+        dataMap.forEach((value, key) => {
+          if (typeof key === 'string' && value && typeof value === 'object') {
+            const entry = value as { index?: string };
+            const parsed = this.parseFavoriteKey(key);
+            if (parsed) {
+              favorites.push({
+                workspaceId,
+                type: parsed.type,
+                id: parsed.id,
+                index: entry.index ?? 'a0',
+              });
+            }
+          }
+        });
+      }
+
+      // Sort by index (lexicographic order)
+      favorites.sort((a, b) => a.index.localeCompare(b.index));
+
+      return favorites;
+    } catch (error) {
+      // If document doesn't exist, return empty array
+      console.log(`[AffineClient] getFavorites: No favorites found for user ${this.userId}`);
+      return [];
+    }
+  }
+
+  /**
+   * Check if a specific document is favorited by the current user.
+   *
+   * @param workspaceId The workspace ID
+   * @param docId The document ID to check
+   * @returns true if the document is favorited
+   */
+  async isDocFavorited(workspaceId: string, docId: string): Promise<boolean> {
+    const favorites = await this.getFavorites(workspaceId);
+    return favorites.some(f => f.type === 'doc' && f.id === docId);
+  }
+
+  /**
+   * Add a document to favorites.
+   *
+   * @param workspaceId The workspace ID
+   * @param docId The document ID to favorite
+   * @returns The created favorite record
+   */
+  async addDocToFavorites(workspaceId: string, docId: string): Promise<FavoriteInfo> {
+    if (!this.userId) {
+      throw new Error('User id unavailable: signIn must complete before addDocToFavorites.');
+    }
+
+    const favoriteDocId = `userdata$${this.userId}$favorite`;
+    const { doc, stateVector } = await this.loadOrCreateWorkspaceDoc(workspaceId, favoriteDocId);
+
+    const dataMap = doc.getMap<Y.Map<unknown>>('data');
+    const key = `doc:${docId}`;
+
+    // Generate a sort index (simple: use 'a' prefix + timestamp)
+    const index = `a${Date.now().toString(36)}`;
+
+    const entryMap = new Y.Map();
+    entryMap.set('key', key);
+    entryMap.set('index', index);
+    dataMap.set(key, entryMap);
+
+    await this.pushWorkspaceDocUpdate(workspaceId, favoriteDocId, doc, stateVector);
+
+    return {
+      workspaceId,
+      type: 'doc',
+      id: docId,
+      index,
+    };
+  }
+
+  /**
+   * Remove a document from favorites.
+   *
+   * @param workspaceId The workspace ID
+   * @param docId The document ID to unfavorite
+   */
+  async removeDocFromFavorites(workspaceId: string, docId: string): Promise<void> {
+    if (!this.userId) {
+      throw new Error('User id unavailable: signIn must complete before removeDocFromFavorites.');
+    }
+
+    const favoriteDocId = `userdata$${this.userId}$favorite`;
+    const { doc, stateVector } = await this.loadOrCreateWorkspaceDoc(workspaceId, favoriteDocId);
+
+    const dataMap = doc.getMap<unknown>('data');
+    const key = `doc:${docId}`;
+
+    dataMap.delete(key);
+
+    await this.pushWorkspaceDocUpdate(workspaceId, favoriteDocId, doc, stateVector);
+  }
+
+  /**
+   * Toggle favorite status for a document.
+   *
+   * @param workspaceId The workspace ID
+   * @param docId The document ID
+   * @returns The new favorite status (true if now favorited)
+   */
+  async toggleDocFavorite(workspaceId: string, docId: string): Promise<boolean> {
+    const isFavorited = await this.isDocFavorited(workspaceId, docId);
+
+    if (isFavorited) {
+      await this.removeDocFromFavorites(workspaceId, docId);
+      return false;
+    } else {
+      await this.addDocToFavorites(workspaceId, docId);
+      return true;
+    }
+  }
+
+  /**
+   * Parse a favorite key into type and id.
+   * Key format: ${type}:${id}
+   */
+  private parseFavoriteKey(key: string): { type: FavoriteType; id: string } | null {
+    const colonIndex = key.indexOf(':');
+    if (colonIndex === -1) return null;
+
+    const type = key.substring(0, colonIndex);
+    const id = key.substring(colonIndex + 1);
+
+    if (!type || !id) return null;
+    if (!['doc', 'collection', 'tag', 'folder'].includes(type)) return null;
+
+    return { type: type as FavoriteType, id };
   }
 }
 
