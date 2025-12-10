@@ -195,6 +195,98 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
   });
 
   /**
+   * GET /recent-documents
+   * Get recently updated documents across ALL workspaces, sorted by updatedDate descending.
+   * Query params:
+   *   - limit: max number of documents (default 10, max 50)
+   *   - mode: filter by primaryMode ('edgeless' or 'page')
+   * Returns: { documents: Array<DocumentSummary & {workspaceId, workspaceName}>, limit, mode, count }
+   */
+  app.get('/recent-documents', async (request, reply) => {
+    const query = (request.query ?? {}) as { limit?: string; mode?: string };
+
+    // Parse limit (default 10, max 50)
+    let limit = 10;
+    if (query.limit) {
+      const parsed = Number.parseInt(query.limit, 10);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        limit = Math.min(parsed, 50);
+      }
+    }
+
+    // Parse mode filter (optional, default to 'edgeless' for Boox client)
+    const modeFilter = query.mode?.trim().toLowerCase();
+    const validModes = ['edgeless', 'page'];
+    const filterByMode = modeFilter && validModes.includes(modeFilter) ? modeFilter : null;
+
+    const client = createClient(config);
+    try {
+      // Get credentials for first workspace (they're all the same user)
+      const { email, password } = await credentialProvider.getCredentials('default');
+      await client.signIn(email, password);
+      await client.connectSocket();
+
+      // Get all workspaces
+      const workspaces = await client.listWorkspaces();
+
+      // Collect documents from all workspaces
+      const allDocuments: Array<{
+        workspaceId: string;
+        workspaceName: string | null;
+        docId: string;
+        title: string | null;
+        createDate: number | null;
+        updatedDate: number | null;
+        tags: string[];
+        folderId: string | null;
+        folderNodeId: string | null;
+        primaryMode?: 'page' | 'edgeless' | null;
+      }> = [];
+
+      for (const ws of workspaces) {
+        try {
+          const documents = await client.listDocuments(ws.id);
+          for (const doc of documents) {
+            allDocuments.push({
+              ...doc,
+              workspaceId: ws.id,
+              workspaceName: ws.name ?? null,
+            });
+          }
+        } catch (e) {
+          // Skip workspaces that fail to load
+          console.error(`Failed to load documents from workspace ${ws.id}:`, e);
+        }
+      }
+
+      // Filter by mode if specified
+      let filtered = filterByMode
+        ? allDocuments.filter(d => d.primaryMode === filterByMode)
+        : allDocuments;
+
+      // Sort by updatedDate descending (most recent first)
+      filtered.sort((a, b) => {
+        const dateA = a.updatedDate ?? 0;
+        const dateB = b.updatedDate ?? 0;
+        return dateB - dateA;
+      });
+
+      // Apply limit
+      const result = filtered.slice(0, limit);
+
+      reply.send({
+        limit,
+        mode: filterByMode,
+        count: result.length,
+        totalWorkspaces: workspaces.length,
+        documents: result,
+      });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  /**
    * GET /workspaces/:workspaceId/recent-documents
    * Get recently updated documents, sorted by updatedDate descending.
    * Query params:
