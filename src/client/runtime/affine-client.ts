@@ -4590,9 +4590,11 @@ export class AffineClient {
     // The server expects format: userdata$userId$workspaceId$tableName
     // This is the "old ID" format that the AFFiNE server uses internally
     const favoriteDocId = `userdata$${this.userId}$${workspaceId}$favorite`;
+    console.log(`[AffineClient] getFavorites: Loading docId=${favoriteDocId}`);
 
     try {
-      const { doc } = await this.loadOrCreateUserspaceDoc(favoriteDocId);
+      const { doc, isNew } = await this.loadOrCreateUserspaceDoc(favoriteDocId);
+      console.log(`[AffineClient] getFavorites: doc loaded, isNew=${isNew}`);
 
       // The favorite YDoc uses YjsDBAdapter structure:
       // Each entry is stored as a YMap in doc.share with key = primaryKey value
