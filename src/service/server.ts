@@ -194,6 +194,69 @@ export function createServer(config: ServerConfig = {}): FastifyInstance {
     }
   });
 
+  /**
+   * GET /workspaces/:workspaceId/recent-documents
+   * Get recently updated documents, sorted by updatedDate descending.
+   * Query params:
+   *   - limit: max number of documents (default 10, max 50)
+   *   - mode: filter by primaryMode ('edgeless' or 'page')
+   * Returns: { documents: DocumentSummary[], workspaceId, limit, mode, count }
+   */
+  app.get('/workspaces/:workspaceId/recent-documents', async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+    const query = (request.query ?? {}) as { limit?: string; mode?: string };
+    const { email, password } = await credentialProvider.getCredentials(workspaceId);
+
+    // Parse limit (default 10, max 50)
+    let limit = 10;
+    if (query.limit) {
+      const parsed = Number.parseInt(query.limit, 10);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        limit = Math.min(parsed, 50);
+      }
+    }
+
+    // Parse mode filter (optional)
+    const modeFilter = query.mode?.trim().toLowerCase();
+    const validModes = ['edgeless', 'page'];
+    const filterByMode = modeFilter && validModes.includes(modeFilter) ? modeFilter : null;
+
+    const client = createClient(config);
+    try {
+      await client.signIn(email, password);
+      await client.connectSocket();
+
+      // Get all documents (now includes primaryMode from docProperties)
+      const documents = await client.listDocuments(workspaceId);
+
+      // Filter by mode if specified
+      let filtered = filterByMode
+        ? documents.filter(d => d.primaryMode === filterByMode)
+        : documents;
+
+      // Sort by updatedDate descending (most recent first)
+      // Documents without updatedDate go to the end
+      filtered.sort((a, b) => {
+        const dateA = a.updatedDate ?? 0;
+        const dateB = b.updatedDate ?? 0;
+        return dateB - dateA;
+      });
+
+      // Apply limit
+      const result = filtered.slice(0, limit);
+
+      reply.send({
+        workspaceId,
+        limit,
+        mode: filterByMode,
+        count: result.length,
+        documents: result,
+      });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
   app.get('/workspaces/:workspaceId/documents/:docId', async (request, reply) => {
     const { workspaceId, docId } = request.params as { workspaceId: string; docId: string };
     const { email, password } = await credentialProvider.getCredentials(workspaceId);

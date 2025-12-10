@@ -69,6 +69,7 @@ export interface DocumentSummary {
   tags: string[];
   folderId: string | null;
   folderNodeId: string | null;
+  primaryMode?: 'page' | 'edgeless' | null;
   public?: boolean;
   publicMode?: 'page' | 'edgeless' | null;
   defaultRole?: string | null;
@@ -1184,6 +1185,11 @@ export class AffineClient {
       const tags = this.toStringArray(entry.get('tags'));
       if (tags.length) {
         summary.tags = tags;
+      }
+      // Read primaryMode from docProperties
+      const primaryMode = entry.get('primaryMode');
+      if (primaryMode === 'page' || primaryMode === 'edgeless') {
+        summary.primaryMode = primaryMode;
       }
     }
 
