@@ -2530,32 +2530,48 @@ export class AffineClient {
     const surfaceBlock = surfaceBlockFound; // Type narrowing
     const elementsMap = this.getElementsMap(surfaceBlock);
 
-    // Get existing element
-    const existingElement = this.getElement(elementsMap, elementId);
-    if (!existingElement) {
-      throw new Error(`Element ${elementId} not found`);
+    // Get raw YMap element (not converted to plain object)
+    if (!(elementsMap instanceof Y.Map)) {
+      throw new Error('Expected Y.Map for elements');
     }
 
-    // Merge updates
+    const rawElement = elementsMap.get(elementId);
+    if (!rawElement || !(rawElement instanceof Y.Map)) {
+      throw new Error(`Element ${elementId} not found or not a YMap`);
+    }
+
+    // Process updates (stringify xywh if it's an array)
     const processedUpdates: Record<string, unknown> = { ...updates };
     if ('xywh' in processedUpdates && Array.isArray(processedUpdates.xywh)) {
       processedUpdates.xywh = JSON.stringify(processedUpdates.xywh);
     }
 
-    const updatedElement = {
-      ...existingElement,
-      ...processedUpdates,
-    };
-
-    // Update element
+    // Update element IN-PLACE on the existing YMap
+    // This preserves Yjs types (Y.Text, Y.Array) that we don't want to touch
     doc.transact(() => {
-      this.setElement(elementsMap, elementId, updatedElement);
+      for (const [key, value] of Object.entries(processedUpdates)) {
+        rawElement.set(key, value);
+      }
     });
 
     await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
 
-    // Return element with parsed xywh
-    const returnElement = { ...updatedElement };
+    // Build return object with all current values
+    const returnElement: Record<string, unknown> = {};
+    rawElement.forEach((value, key) => {
+      // Convert Yjs types to plain values for JSON response
+      if (value instanceof Y.Text) {
+        returnElement[key] = value.toString();
+      } else if (value instanceof Y.Map) {
+        returnElement[key] = value.toJSON();
+      } else if (value instanceof Y.Array) {
+        returnElement[key] = value.toJSON();
+      } else {
+        returnElement[key] = value;
+      }
+    });
+
+    // Parse xywh back to array for response
     if (typeof returnElement.xywh === 'string') {
       try {
         returnElement.xywh = JSON.parse(returnElement.xywh);
