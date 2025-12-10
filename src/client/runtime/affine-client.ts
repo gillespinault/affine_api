@@ -342,6 +342,7 @@ export class AffineClient {
   private socket: Socket | null;
 
   private readonly joinedWorkspaces: Set<string>;
+  private readonly joinedUserspaces: Set<string>;
 
   constructor(options: AffineClientOptions = {}) {
     const { baseUrl = DEFAULT_BASE_URL, fetchFn, ioFactory, timeoutMs } = options;
@@ -355,6 +356,7 @@ export class AffineClient {
     this.userId = null;
     this.socket = null;
     this.joinedWorkspaces = new Set();
+    this.joinedUserspaces = new Set();
   }
 
   private assignOptionalVariable(
@@ -654,6 +656,48 @@ export class AffineClient {
     }
   }
 
+  /**
+   * Join a userspace to access per-user data (favorites, settings, etc.)
+   * Userspace must be joined before loading or pushing userdata docs.
+   */
+  async joinUserspace(workspaceId: string) {
+    if (this.joinedUserspaces.has(workspaceId)) {
+      return;
+    }
+
+    const res = await this.emitWithAck<SocketAck>(
+      'space:join',
+      {
+        spaceType: 'userspace',
+        spaceId: workspaceId,
+        clientVersion: `affine-client-${randomUUID()}`,
+      },
+    );
+
+    if (res && typeof res === 'object' && 'error' in res && res.error) {
+      throw new Error(`space:join (userspace) rejected: ${JSON.stringify(res.error)}`);
+    }
+
+    this.joinedUserspaces.add(workspaceId);
+  }
+
+  async leaveUserspace(workspaceId: string) {
+    if (!this.joinedUserspaces.has(workspaceId)) {
+      return;
+    }
+
+    try {
+      await this.emitWithAck('space:leave', {
+        spaceType: 'userspace',
+        spaceId: workspaceId,
+      });
+    } catch (err) {
+      console.warn('space:leave (userspace) failed:', err);
+    } finally {
+      this.joinedUserspaces.delete(workspaceId);
+    }
+  }
+
   async disconnect() {
     if (this.socket) {
       this.socket.disconnect();
@@ -737,8 +781,13 @@ export class AffineClient {
    * Load a userspace doc (userdata like favorites, settings).
    * Userspace uses spaceType: 'userspace' which stores per-user data.
    * DocId format: userdata$userId$tableName (e.g., userdata$abc123$favorite)
+   *
+   * Note: Automatically joins the userspace if not already joined.
    */
   async loadOrCreateUserspaceDoc(workspaceId: string, docId: string) {
+    // Must join userspace before accessing userdata docs
+    await this.joinUserspace(workspaceId);
+
     const res = await this.emitWithAck<SocketAck<LoadDocAckPayload>>(
       'space:load-doc',
       {
