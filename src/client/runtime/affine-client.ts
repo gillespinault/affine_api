@@ -657,11 +657,18 @@ export class AffineClient {
   }
 
   /**
-   * Join a userspace to access per-user data (favorites, settings, etc.)
+   * Join the current user's userspace to access per-user data (favorites, settings, etc.)
    * Userspace must be joined before loading or pushing userdata docs.
+   *
+   * IMPORTANT: Userspace spaceId must be the userId, not workspaceId!
+   * AFFiNE server validates: spaceId === userId for userspace access.
    */
-  async joinUserspace(workspaceId: string) {
-    if (this.joinedUserspaces.has(workspaceId)) {
+  async joinUserspace() {
+    if (!this.userId) {
+      throw new Error('User id unavailable: signIn must complete before joinUserspace.');
+    }
+
+    if (this.joinedUserspaces.has(this.userId)) {
       return;
     }
 
@@ -669,7 +676,7 @@ export class AffineClient {
       'space:join',
       {
         spaceType: 'userspace',
-        spaceId: workspaceId,
+        spaceId: this.userId,  // Must be userId, not workspaceId!
         clientVersion: `affine-client-${randomUUID()}`,
       },
     );
@@ -678,23 +685,23 @@ export class AffineClient {
       throw new Error(`space:join (userspace) rejected: ${JSON.stringify(res.error)}`);
     }
 
-    this.joinedUserspaces.add(workspaceId);
+    this.joinedUserspaces.add(this.userId);
   }
 
-  async leaveUserspace(workspaceId: string) {
-    if (!this.joinedUserspaces.has(workspaceId)) {
+  async leaveUserspace() {
+    if (!this.userId || !this.joinedUserspaces.has(this.userId)) {
       return;
     }
 
     try {
       await this.emitWithAck('space:leave', {
         spaceType: 'userspace',
-        spaceId: workspaceId,
+        spaceId: this.userId,
       });
     } catch (err) {
       console.warn('space:leave (userspace) failed:', err);
     } finally {
-      this.joinedUserspaces.delete(workspaceId);
+      this.joinedUserspaces.delete(this.userId);
     }
   }
 
@@ -783,16 +790,23 @@ export class AffineClient {
    * DocId format: userdata$userId$tableName (e.g., userdata$abc123$favorite)
    *
    * Note: Automatically joins the userspace if not already joined.
+   *
+   * IMPORTANT: For userspace, the spaceId is always the userId, not workspaceId!
+   * The workspaceId may be encoded in the docId for workspace-specific userdata.
    */
-  async loadOrCreateUserspaceDoc(workspaceId: string, docId: string) {
+  async loadOrCreateUserspaceDoc(docId: string) {
+    if (!this.userId) {
+      throw new Error('User id unavailable: signIn must complete before loadOrCreateUserspaceDoc.');
+    }
+
     // Must join userspace before accessing userdata docs
-    await this.joinUserspace(workspaceId);
+    await this.joinUserspace();
 
     const res = await this.emitWithAck<SocketAck<LoadDocAckPayload>>(
       'space:load-doc',
       {
         spaceType: 'userspace',
-        spaceId: workspaceId,
+        spaceId: this.userId,  // Always userId for userspace!
         docId,
       },
     );
@@ -816,19 +830,24 @@ export class AffineClient {
 
   /**
    * Push updates to a userspace doc.
+   *
+   * IMPORTANT: For userspace, the spaceId is always the userId, not workspaceId!
    */
   async pushUserspaceDocUpdate(
-    workspaceId: string,
     docId: string,
     doc: Y.Doc,
     stateVector?: Buffer | null,
   ) {
+    if (!this.userId) {
+      throw new Error('User id unavailable: signIn must complete before pushUserspaceDocUpdate.');
+    }
+
     const update = encodeUpdateToBase64(doc, stateVector);
     const res = await this.emitWithAck<SocketAck>(
       'space:push-doc-update',
       {
         spaceType: 'userspace',
-        spaceId: workspaceId,
+        spaceId: this.userId,  // Always userId for userspace!
         docId,
         update,
       },
@@ -4563,10 +4582,11 @@ export class AffineClient {
     }
 
     // Favorites are stored in userspace (not workspace) with docId format: userdata$userId$favorite
+    // Note: Favorites are global per user, not per workspace. The workspaceId is stored in the key.
     const favoriteDocId = `userdata$${this.userId}$favorite`;
 
     try {
-      const { doc } = await this.loadOrCreateUserspaceDoc(workspaceId, favoriteDocId);
+      const { doc } = await this.loadOrCreateUserspaceDoc(favoriteDocId);
 
       // The favorite YDoc uses YjsDBAdapter structure:
       // Each entry is stored as a YMap in doc.share with key = primaryKey value
@@ -4635,9 +4655,9 @@ export class AffineClient {
       throw new Error('User id unavailable: signIn must complete before addDocToFavorites.');
     }
 
-    // Favorites are stored in userspace (not workspace)
+    // Favorites are stored in userspace (global per user, not per workspace)
     const favoriteDocId = `userdata$${this.userId}$favorite`;
-    const { doc, stateVector } = await this.loadOrCreateUserspaceDoc(workspaceId, favoriteDocId);
+    const { doc, stateVector } = await this.loadOrCreateUserspaceDoc(favoriteDocId);
 
     const key = `doc:${docId}`;
 
@@ -4654,7 +4674,7 @@ export class AffineClient {
       entryMap.delete('$$DELETED');
     });
 
-    await this.pushUserspaceDocUpdate(workspaceId, favoriteDocId, doc, stateVector);
+    await this.pushUserspaceDocUpdate(favoriteDocId, doc, stateVector);
 
     return {
       workspaceId,
@@ -4675,9 +4695,9 @@ export class AffineClient {
       throw new Error('User id unavailable: signIn must complete before removeDocFromFavorites.');
     }
 
-    // Favorites are stored in userspace (not workspace)
+    // Favorites are stored in userspace (global per user, not per workspace)
     const favoriteDocId = `userdata$${this.userId}$favorite`;
-    const { doc, stateVector } = await this.loadOrCreateUserspaceDoc(workspaceId, favoriteDocId);
+    const { doc, stateVector } = await this.loadOrCreateUserspaceDoc(favoriteDocId);
 
     const key = `doc:${docId}`;
 
@@ -4690,7 +4710,7 @@ export class AffineClient {
       });
     }
 
-    await this.pushUserspaceDocUpdate(workspaceId, favoriteDocId, doc, stateVector);
+    await this.pushUserspaceDocUpdate(favoriteDocId, doc, stateVector);
   }
 
   /**
