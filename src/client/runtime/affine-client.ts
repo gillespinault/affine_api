@@ -4586,15 +4586,28 @@ export class AffineClient {
       throw new Error('User id unavailable: signIn must complete before getFavorites.');
     }
 
-    // CRITICAL: Favorites are stored PER WORKSPACE on the server!
-    // The server expects format: userdata$userId$workspaceId$tableName
-    // This is the "old ID" format that the AFFiNE server uses internally
-    const favoriteDocId = `userdata$${this.userId}$${workspaceId}$favorite`;
-    console.log(`[AffineClient] getFavorites: Loading docId=${favoriteDocId}`);
+    // Try BOTH formats to see which one has data:
+    // Format A (with workspaceId): userdata$userId$workspaceId$favorite
+    // Format B (without workspaceId): userdata$userId$favorite
+    const favoriteDocIdWithWs = `userdata$${this.userId}$${workspaceId}$favorite`;
+    const favoriteDocIdWithoutWs = `userdata$${this.userId}$favorite`;
+    console.log(`[AffineClient] getFavorites: Testing both formats...`);
+
+    // Try format A first (with workspaceId)
+    console.log(`[AffineClient] getFavorites: Trying format A: ${favoriteDocIdWithWs}`);
+    let result = await this.loadOrCreateUserspaceDoc(favoriteDocIdWithWs);
+    console.log(`[AffineClient] getFavorites: Format A result - isNew=${result.isNew}, keys=${Array.from(result.doc.share.keys())}`);
+
+    // If format A is new/empty, try format B (without workspaceId)
+    if (result.isNew || result.doc.share.size === 0) {
+      console.log(`[AffineClient] getFavorites: Format A empty, trying format B: ${favoriteDocIdWithoutWs}`);
+      result = await this.loadOrCreateUserspaceDoc(favoriteDocIdWithoutWs);
+      console.log(`[AffineClient] getFavorites: Format B result - isNew=${result.isNew}, keys=${Array.from(result.doc.share.keys())}`);
+    }
 
     try {
-      const { doc, isNew } = await this.loadOrCreateUserspaceDoc(favoriteDocId);
-      console.log(`[AffineClient] getFavorites: doc loaded, isNew=${isNew}`);
+      const { doc, isNew } = result;
+      console.log(`[AffineClient] getFavorites: Using doc with isNew=${isNew}`);
 
       // The favorite YDoc uses YjsDBAdapter structure:
       // Each entry is stored as a YMap in doc.share with key = primaryKey value
