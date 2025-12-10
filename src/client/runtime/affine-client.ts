@@ -733,6 +733,65 @@ export class AffineClient {
     return res;
   }
 
+  /**
+   * Load a userspace doc (userdata like favorites, settings).
+   * Userspace uses spaceType: 'userspace' which stores per-user data.
+   * DocId format: userdata$userId$tableName (e.g., userdata$abc123$favorite)
+   */
+  async loadOrCreateUserspaceDoc(workspaceId: string, docId: string) {
+    const res = await this.emitWithAck<SocketAck<LoadDocAckPayload>>(
+      'space:load-doc',
+      {
+        spaceType: 'userspace',
+        spaceId: workspaceId,
+        docId,
+      },
+    );
+
+    // Check if doc doesn't exist (404)
+    if (res && typeof res === 'object' && 'error' in res && res.error) {
+      const error = res.error as { code?: string };
+      if (error.code === 'DOC_NOT_FOUND') {
+        // Create a new empty Y.Doc
+        const doc = new Y.Doc();
+        return { doc, stateVector: null, isNew: true };
+      }
+      throw new Error(
+        `space:load-doc (userspace) failed for ${docId}: ${JSON.stringify(res.error)}`,
+      );
+    }
+
+    const result = decodeLoadResponse(res);
+    return { ...result, isNew: false };
+  }
+
+  /**
+   * Push updates to a userspace doc.
+   */
+  async pushUserspaceDocUpdate(
+    workspaceId: string,
+    docId: string,
+    doc: Y.Doc,
+    stateVector?: Buffer | null,
+  ) {
+    const update = encodeUpdateToBase64(doc, stateVector);
+    const res = await this.emitWithAck<SocketAck>(
+      'space:push-doc-update',
+      {
+        spaceType: 'userspace',
+        spaceId: workspaceId,
+        docId,
+        update,
+      },
+    );
+    if (res && typeof res === 'object' && 'error' in res && res.error) {
+      throw new Error(
+        `space:push-doc-update (userspace) failed for ${docId}: ${JSON.stringify(res.error)}`,
+      );
+    }
+    return res;
+  }
+
   async updateWorkspaceMeta(
     workspaceId: string,
     {
@@ -4454,10 +4513,11 @@ export class AffineClient {
       throw new Error('User id unavailable: signIn must complete before getFavorites.');
     }
 
+    // Favorites are stored in userspace (not workspace) with docId format: userdata$userId$favorite
     const favoriteDocId = `userdata$${this.userId}$favorite`;
 
     try {
-      const { doc } = await this.loadOrCreateWorkspaceDoc(workspaceId, favoriteDocId);
+      const { doc } = await this.loadOrCreateUserspaceDoc(workspaceId, favoriteDocId);
 
       // The favorite YDoc uses YjsDBAdapter structure:
       // Each entry is stored as a YMap in doc.share with key = primaryKey value
@@ -4526,8 +4586,9 @@ export class AffineClient {
       throw new Error('User id unavailable: signIn must complete before addDocToFavorites.');
     }
 
+    // Favorites are stored in userspace (not workspace)
     const favoriteDocId = `userdata$${this.userId}$favorite`;
-    const { doc, stateVector } = await this.loadOrCreateWorkspaceDoc(workspaceId, favoriteDocId);
+    const { doc, stateVector } = await this.loadOrCreateUserspaceDoc(workspaceId, favoriteDocId);
 
     const key = `doc:${docId}`;
 
@@ -4544,7 +4605,7 @@ export class AffineClient {
       entryMap.delete('$$DELETED');
     });
 
-    await this.pushWorkspaceDocUpdate(workspaceId, favoriteDocId, doc, stateVector);
+    await this.pushUserspaceDocUpdate(workspaceId, favoriteDocId, doc, stateVector);
 
     return {
       workspaceId,
@@ -4565,8 +4626,9 @@ export class AffineClient {
       throw new Error('User id unavailable: signIn must complete before removeDocFromFavorites.');
     }
 
+    // Favorites are stored in userspace (not workspace)
     const favoriteDocId = `userdata$${this.userId}$favorite`;
-    const { doc, stateVector } = await this.loadOrCreateWorkspaceDoc(workspaceId, favoriteDocId);
+    const { doc, stateVector } = await this.loadOrCreateUserspaceDoc(workspaceId, favoriteDocId);
 
     const key = `doc:${docId}`;
 
@@ -4579,7 +4641,7 @@ export class AffineClient {
       });
     }
 
-    await this.pushWorkspaceDocUpdate(workspaceId, favoriteDocId, doc, stateVector);
+    await this.pushUserspaceDocUpdate(workspaceId, favoriteDocId, doc, stateVector);
   }
 
   /**
