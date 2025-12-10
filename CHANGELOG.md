@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2025-12-10
+
+### Fixed
+
+- **Yjs Element Update Bug** : Correction de l'erreur "Unexpected content type" lors de la mise à jour d'éléments
+  - **Problème** : `updateEdgelessElement` remplaçait entièrement le YMap, ce qui échouait car les types Yjs (Y.Text, Y.Array) ont un contexte parent et ne peuvent pas être copiés entre YMaps
+  - **Solution** : Mise à jour des propriétés **in-place** directement sur le YMap existant avec `rawElement.set(key, value)`
+  - Impact : Correction du move/resize pour affine-boox-client
+
+### Changed
+
+- **updateEdgelessElement** : Nouvelle implémentation qui préserve les types Yjs internes
+  - Récupère le YMap brut au lieu de le convertir en objet JavaScript
+  - Met à jour les propriétés individuellement au lieu de remplacer tout l'élément
+  - Support des mises à jour partielles (xywh, points, etc.)
+
+### Technical Details
+
+```typescript
+// Avant (cassé) - remplaçait tout le YMap
+const updatedElement = { ...existingElement, ...updates };
+this.setElement(elementsMap, elementId, updatedElement);
+
+// Après (corrigé) - mise à jour in-place
+doc.transact(() => {
+  for (const [key, value] of Object.entries(updates)) {
+    rawElement.set(key, value);
+  }
+});
+```
+
 ## [0.6.0] - 2025-12-09
 
 ### Added
