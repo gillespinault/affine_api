@@ -4571,7 +4571,12 @@ export class AffineClient {
 
   /**
    * Get all favorites for the current user in a workspace.
-   * Favorites are stored in userdata$userId$favorite YDoc.
+   *
+   * IMPORTANT: Favorites are stored PER WORKSPACE in AFFiNE!
+   * The server stores userdata with the workspaceId embedded in the docId.
+   *
+   * Client format: userdata$userId$favorite (internal use)
+   * Server format: userdata$userId$workspaceId$favorite (sent to server)
    *
    * @param workspaceId The workspace ID
    * @returns Array of favorite records with type, id, and sort index
@@ -4581,9 +4586,10 @@ export class AffineClient {
       throw new Error('User id unavailable: signIn must complete before getFavorites.');
     }
 
-    // Favorites are stored in userspace (not workspace) with docId format: userdata$userId$favorite
-    // Note: Favorites are global per user, not per workspace. The workspaceId is stored in the key.
-    const favoriteDocId = `userdata$${this.userId}$favorite`;
+    // CRITICAL: Favorites are stored PER WORKSPACE on the server!
+    // The server expects format: userdata$userId$workspaceId$tableName
+    // This is the "old ID" format that the AFFiNE server uses internally
+    const favoriteDocId = `userdata$${this.userId}$${workspaceId}$favorite`;
 
     try {
       const { doc } = await this.loadOrCreateUserspaceDoc(favoriteDocId);
@@ -4592,6 +4598,9 @@ export class AffineClient {
       // Each entry is stored as a YMap in doc.share with key = primaryKey value
       // Structure: doc.share.get("doc:abc123") -> YMap({ key: "doc:abc123", index: "a0" })
       const favorites: FavoriteInfo[] = [];
+
+      // Debug: log the share keys
+      console.log(`[AffineClient] getFavorites: doc.share keys:`, Array.from(doc.share.keys()));
 
       // Iterate over all shared types in the doc
       doc.share.forEach((ymap, shareKey) => {
@@ -4602,8 +4611,11 @@ export class AffineClient {
         const entry = ymap.toJSON() as Record<string, unknown>;
         if (!entry || typeof entry !== 'object') return;
 
-        // Check for deletion flag
-        if (entry['$$DELETED']) return;
+        // Debug: log the entry
+        console.log(`[AffineClient] getFavorites: entry for key ${shareKey}:`, entry);
+
+        // Check for deletion flag (YjsDBAdapter uses $DELETED)
+        if (entry['$DELETED']) return;
 
         // The key field contains the actual key (e.g., "doc:abc123")
         const keyValue = (entry.key as string) || shareKey;
@@ -4623,10 +4635,11 @@ export class AffineClient {
       // Sort by index (lexicographic order)
       favorites.sort((a, b) => a.index.localeCompare(b.index));
 
+      console.log(`[AffineClient] getFavorites: found ${favorites.length} favorites`);
       return favorites;
     } catch (error) {
       // If document doesn't exist, return empty array
-      console.log(`[AffineClient] getFavorites: No favorites found for user ${this.userId}`);
+      console.log(`[AffineClient] getFavorites: Error loading favorites:`, error);
       return [];
     }
   }
@@ -4646,6 +4659,9 @@ export class AffineClient {
   /**
    * Add a document to favorites.
    *
+   * IMPORTANT: Favorites are stored PER WORKSPACE on the server!
+   * Server format: userdata$userId$workspaceId$favorite
+   *
    * @param workspaceId The workspace ID
    * @param docId The document ID to favorite
    * @returns The created favorite record
@@ -4655,8 +4671,8 @@ export class AffineClient {
       throw new Error('User id unavailable: signIn must complete before addDocToFavorites.');
     }
 
-    // Favorites are stored in userspace (global per user, not per workspace)
-    const favoriteDocId = `userdata$${this.userId}$favorite`;
+    // CRITICAL: Favorites are stored PER WORKSPACE on the server!
+    const favoriteDocId = `userdata$${this.userId}$${workspaceId}$favorite`;
     const { doc, stateVector } = await this.loadOrCreateUserspaceDoc(favoriteDocId);
 
     const key = `doc:${docId}`;
@@ -4670,8 +4686,8 @@ export class AffineClient {
     doc.transact(() => {
       entryMap.set('key', key);
       entryMap.set('index', index);
-      // Remove deletion flag if present
-      entryMap.delete('$$DELETED');
+      // Remove deletion flag if present (YjsDBAdapter uses $DELETED)
+      entryMap.delete('$DELETED');
     });
 
     await this.pushUserspaceDocUpdate(favoriteDocId, doc, stateVector);
@@ -4687,6 +4703,9 @@ export class AffineClient {
   /**
    * Remove a document from favorites.
    *
+   * IMPORTANT: Favorites are stored PER WORKSPACE on the server!
+   * Server format: userdata$userId$workspaceId$favorite
+   *
    * @param workspaceId The workspace ID
    * @param docId The document ID to unfavorite
    */
@@ -4695,18 +4714,18 @@ export class AffineClient {
       throw new Error('User id unavailable: signIn must complete before removeDocFromFavorites.');
     }
 
-    // Favorites are stored in userspace (global per user, not per workspace)
-    const favoriteDocId = `userdata$${this.userId}$favorite`;
+    // CRITICAL: Favorites are stored PER WORKSPACE on the server!
+    const favoriteDocId = `userdata$${this.userId}$${workspaceId}$favorite`;
     const { doc, stateVector } = await this.loadOrCreateUserspaceDoc(favoriteDocId);
 
     const key = `doc:${docId}`;
 
-    // YjsDBAdapter marks entries as deleted with a $$DELETED flag
+    // YjsDBAdapter marks entries as deleted with a $DELETED flag
     // rather than actually removing them from doc.share
     if (doc.share.has(key)) {
       const entryMap = doc.getMap(key);
       doc.transact(() => {
-        entryMap.set('$$DELETED', true);
+        entryMap.set('$DELETED', true);
       });
     }
 
