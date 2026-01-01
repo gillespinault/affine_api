@@ -2476,6 +2476,10 @@ export class AffineClient {
     // Add element to surface
     doc.transact(() => {
       this.setElement(elementsMap, elementId, finalElement);
+
+      // CRITICAL: Update meta.updatedDate to trigger client re-render
+      const meta = doc.getMap<unknown>('meta');
+      meta.set('updatedDate', Date.now());
     });
 
     console.log(`[AffineClient] Pushing doc update for element ${elementId}...`);
@@ -2552,6 +2556,10 @@ export class AffineClient {
       for (const [key, value] of Object.entries(processedUpdates)) {
         rawElement.set(key, value);
       }
+
+      // CRITICAL: Update meta.updatedDate to trigger client re-render
+      const meta = doc.getMap<unknown>('meta');
+      meta.set('updatedDate', Date.now());
     });
 
     await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
@@ -2626,6 +2634,10 @@ export class AffineClient {
     // Delete element (handles both YMap and plain object)
     doc.transact(() => {
       this.deleteElement(elementsMap, elementId);
+
+      // CRITICAL: Update meta.updatedDate to trigger client re-render
+      const meta = doc.getMap<unknown>('meta');
+      meta.set('updatedDate', Date.now());
     });
 
     await this.pushWorkspaceDocUpdate(workspaceId, docId, doc, stateVector);
@@ -2681,7 +2693,14 @@ export class AffineClient {
       // Store element as Y.Map for proper CRDT synchronization
       const elementMap = new Y.Map<unknown>();
       Object.entries(elementData).forEach(([key, value]) => {
-        elementMap.set(key, value);
+        // Convert text property to Y.Text for proper BlockSuite compatibility
+        if (key === 'text' && typeof value === 'string') {
+          const ytext = new Y.Text();
+          ytext.insert(0, value);
+          elementMap.set(key, ytext);
+        } else {
+          elementMap.set(key, value);
+        }
       });
       elementsMap.set(elementId, elementMap);
     } else {

@@ -20,7 +20,7 @@ export const SHAPE_DEFAULTS = {
   xywh: '[0,0,100,100]',
 
   // Fill
-  filled: false,
+  filled: true, // Fixed: shapes should be filled by default
   fillColor: '--affine-palette-shape-white', // DefaultTheme.shapeFillColor
 
   // Stroke
